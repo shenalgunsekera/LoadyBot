@@ -1,0 +1,16 @@
+{
+  "name": "loady",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Loady — one bot, many accounts. Multi-tenant SaaS for payment/cash-out bots on Telegram & Discord.",
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "web": "pnpm -C apps/web dev",
+    "tg": "pnpm -C apps/telegram-bot dev",
+    "dc": "pnpm -C apps/discord-bot dev",
+    "migrate": "node scripts/migrate.mjs",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "build": "pnpm -r --if-present build"
+  },
+  "engines": { "node": ">=20" }
+}

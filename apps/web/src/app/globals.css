@@ -1,0 +1,123 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Loady design system — inspired by novadrop.lk: clean & light, navy ink, a
+   confident teal accent, soft rounded cards, generous whitespace.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* Neutrals — a hair of blue so the greys read as chosen, not default */
+  --bg:        #f4f7fb;
+  --surface:   #ffffff;
+  --surface-2: #eef2f8;
+  --ink:       #0d1b2e;
+  --ink-dim:   #52627a;
+  --muted:     #8593a8;
+  --border:    #e5ebf2;
+  --border-strong: #d4dce7;
+
+  /* Brand — teal accent, coral for the rare warm highlight */
+  --accent:      #0fb6a6;
+  --accent-strong:#0a998c;
+  --accent-soft: #e4faf6;
+  --accent-ink:  #063f39;
+  --coral:       #ff7a59;
+
+  /* Semantic */
+  --ok:   #12a150;  --ok-soft:   #e6f6ec;
+  --warn: #c2790a;  --warn-soft: #fdf1dd;
+  --red:  #e5484d;  --red-soft:  #fdecec;
+
+  --r:    12px;
+  --r-lg: 18px;
+  --r-sm: 8px;
+  --shadow-sm: 0 1px 2px rgba(13,27,46,.05);
+  --shadow:    0 2px 6px rgba(13,27,46,.05), 0 12px 28px rgba(13,27,46,.06);
+  --shadow-lg: 0 8px 40px rgba(13,27,46,.10);
+
+  --font-body: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-display: var(--font-jakarta), var(--font-inter), system-ui, sans-serif;
+  --maxw: 1180px;
+}
+
+* { box-sizing: border-box; }
+html, body { padding: 0; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+
+h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 700; letter-spacing: -0.02em; line-height: 1.12; margin: 0; color: var(--ink); text-wrap: balance; }
+h1 { font-size: clamp(2.1rem, 4.5vw, 3.4rem); }
+h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); }
+h3 { font-size: 1.15rem; }
+p  { margin: 0; }
+
+.container { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+.muted { color: var(--muted); }
+.dim   { color: var(--ink-dim); }
+.mono  { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 44px; padding: 0 20px; border-radius: 999px; border: 1px solid transparent;
+  font-family: var(--font-body); font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: transform .12s ease, background .15s ease, box-shadow .15s ease; white-space: nowrap;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(15,182,166,.28); }
+.btn-primary:hover { background: var(--accent-strong); }
+.btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--border-strong); }
+.btn-ghost:hover { background: var(--surface-2); }
+.btn-dark { background: var(--ink); color: #fff; }
+.btn-dark:hover { background: #16294180; background: #182b45; }
+.btn-sm { height: 36px; padding: 0 14px; font-size: 13.5px; }
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 22px; box-shadow: var(--shadow-sm);
+}
+.card-hover { transition: box-shadow .18s ease, transform .18s ease; }
+.card-hover:hover { box-shadow: var(--shadow); transform: translateY(-2px); }
+
+.grid { display: grid; gap: 16px; }
+.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.cols-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) { .cols-3, .cols-4 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 620px) { .cols-2, .cols-3, .cols-4 { grid-template-columns: 1fr; } }
+
+/* ── Pills, badges, chips ────────────────────────────────────────────────── */
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600; background: var(--accent-soft); color: var(--accent-ink); }
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.badge.ok   { background: var(--ok-soft);   color: var(--ok); }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.red  { background: var(--red-soft);  color: var(--red); }
+.badge.muted{ background: var(--surface-2); color: var(--ink-dim); }
+
+/* ── Forms ───────────────────────────────────────────────────────────────── */
+label { font-size: 13px; font-weight: 600; color: var(--ink-dim); }
+input, select, textarea {
+  width: 100%; height: 44px; padding: 0 14px; border: 1px solid var(--border-strong);
+  border-radius: var(--r); background: var(--surface); color: var(--ink); font-family: var(--font-body); font-size: 15px;
+}
+textarea { height: auto; padding: 12px 14px; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.field { display: flex; flex-direction: column; gap: 7px; }
+
+/* ── Stat ────────────────────────────────────────────────────────────────── */
+.stat-label { font-size: 13px; color: var(--ink-dim); font-weight: 600; }
+.stat-value { font-family: var(--font-display); font-size: 30px; font-weight: 700; letter-spacing: -0.03em; margin-top: 4px; }
+.stat-note  { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.stat-value.pos { color: var(--ok); } .stat-value.neg { color: var(--red); }
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+.table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-sm); }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+td { padding: 14px 18px; border-bottom: 1px solid var(--border); font-size: 14px; }
+tr:last-child td { border-bottom: none; }
