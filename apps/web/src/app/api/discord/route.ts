@@ -30,7 +30,7 @@ const GUIDE = [
   '`/deposithistory` · `/withdrawalhistory` — your activity',
   '`/support` — message the team',
 ].join('\n');
-const SOON = ['addtowithdraw', 'support', 'pausewithdraw', 'resumewithdraw'];
+const SOON = ['support', 'pausewithdraw', 'resumewithdraw'];
 const methodList = (accountId: string, payout: boolean) =>
   withAccount(accountId, (sql) => payout
     ? sql<{ name: string }[]>`select name from payment_methods where enabled and payout_enabled order by sort_order, name`
@@ -148,6 +148,13 @@ export async function POST(req: Request): Promise<Response> {
         const ms = await methodList(account.id, true);
         return reply(`💵 **You can get paid with:**\n${ms.map((m) => '• ' + m.name).join('\n') || '—'}\nWe’ll ask where to send it when you \`/withdraw\`.`, { ephemeral: true });
       }
+      if (name === 'addtowithdraw') {
+        const p = await touchPlayer(account.id, userId, username, i.channel_id);
+        const [w] = await withAccount(account.id, (sql) => sql<{ amount: number; payout_handle: string | null }[]>`
+          select amount, payout_handle from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled','paused') order by created_at desc limit 1`);
+        if (!w) return reply('You have no cash-out in the queue to add to. Start one with /withdraw.', { ephemeral: true });
+        return modal('atw', `Add to your ${money(w.amount)} cash-out`, [textInput('amount', 'How much to add (e.g. 25)')]);
+      }
       if (SOON.includes(name)) return reply('That feature is coming soon.', { ephemeral: true });
 
       if (name === 'canceldeposit') {
@@ -254,6 +261,15 @@ export async function POST(req: Request): Promise<Response> {
         if (!handle) return reply('We need to know where to send your money.', { ephemeral: true });
         const [w] = await withAccount(account.id, (sql) => sql<{ amount: number }[]>`select amount from withdraw_create(${player.id}, ${platformId!}, ${methodId!}, ${amount}, ${handle})`);
         return reply(`✅ **Cash-out for ${money(w!.amount)} is in the queue.** We’ll pay \`${handle}\` and message you when it’s done.`, { ephemeral: true });
+      }
+      if (k === 'atw') {
+        const [w] = await withAccount(account.id, async (sql) => {
+          const [cur] = await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${player.id} and status in ('queued','partially_filled','paused') order by created_at desc limit 1`;
+          if (!cur) return [undefined];
+          return sql<{ amount: number; payout_handle: string | null }[]>`select amount, payout_handle from withdraw_topup(${cur.id}, ${amount})`;
+        });
+        if (!w) return reply('You have no cash-out in the queue to add to.', { ephemeral: true });
+        return reply(`✅ **Added ${money(amount)}.** Your cash-out is now **${money(w.amount)}**${w.payout_handle ? ` → \`${w.payout_handle}\`` : ''} and still in the queue.`, { ephemeral: true });
       }
     }
   } catch (e) {

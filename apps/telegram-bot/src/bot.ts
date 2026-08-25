@@ -6,7 +6,7 @@ import {
 import { money, parseAmount, resolvePlayer, platformsFor, methodsFor, adminChatFor, type Player } from './ui';
 import { pgSessions } from './session-store';
 
-interface SessionData { step: string; platformId?: string; methodId?: string; amount?: number; fillId?: string }
+interface SessionData { step: string; platformId?: string; methodId?: string; amount?: number; fillId?: string; withdrawId?: string }
 export type Ctx = Context & SessionFlavor<SessionData> & { account?: Account; player?: Player };
 
 const errText = (e: unknown) => ((e as { message?: string })?.message ?? String(e)).replace(/^error:\s*/i, '');
@@ -276,8 +276,20 @@ export function buildBot(): Bot<Ctx> {
     await ctx.reply(`💵 *You can get paid with:*\n${methods.map((m) => '• ' + m.name).join('\n') || '—'}\n\nWe’ll ask where to send it when you /withdraw.`, { parse_mode: 'Markdown' });
   });
 
+  // Add more to a cash-out that's already waiting in the queue.
+  bot.command('addtowithdraw', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    const p = await player(ctx, account);
+    const [w] = await withAccount(account.id, (sql) => sql<{ id: string; amount: number; payout_handle: string | null }[]>`
+      select id, amount, payout_handle from withdraw_requests
+       where player_id = ${p.id} and status in ('queued','partially_filled','paused') order by created_at desc limit 1`);
+    if (!w) { ctx.session = { step: 'idle' }; return ctx.reply('You have no cash-out in the queue to add to. Start one with /withdraw.'); }
+    ctx.session = { step: 'atw_amount', withdrawId: w.id };
+    await ctx.reply(`Your current cash-out is *${money(w.amount)}*${w.payout_handle ? ` → \`${w.payout_handle}\`` : ''}.\nHow much would you like to *add*? Send the number, e.g. \`25\`.`, { parse_mode: 'Markdown' });
+  });
+
   // Registered so the menu matches the poker bot; behaviour lands in later steps.
-  for (const c of ['addtowithdraw', 'support']) {
+  for (const c of ['support']) {
     bot.command(c, async (ctx) => { await ctx.reply('That feature is coming soon.'); });
   }
 
@@ -316,6 +328,17 @@ export function buildBot(): Bot<Ctx> {
       if (amount == null) return ctx.reply('That doesn’t look like an amount. Try `50`.', { parse_mode: 'Markdown' });
       ctx.session = { ...s, step: 'wd_handle', amount };
       return ctx.reply('Where should we send it? Send your payout handle (e.g. your Venmo / Zelle / wallet).');
+    }
+    if (s.step === 'atw_amount') {
+      const amount = parseAmount(ctx.message.text);
+      if (amount == null) return ctx.reply('That doesn’t look like an amount. Try `25`.', { parse_mode: 'Markdown' });
+      try {
+        const [w] = await withAccount(account.id, (sql) => sql<{ amount: number; payout_handle: string | null }[]>`
+          select amount, payout_handle from withdraw_topup(${s.withdrawId!}, ${amount})`);
+        ctx.session = { step: 'idle' };
+        await ctx.reply(`✅ *Added ${money(amount)}.* Your cash-out is now *${money(w!.amount)}*${w!.payout_handle ? ` → \`${w!.payout_handle}\`` : ''} and still in the queue.`, { parse_mode: 'Markdown' });
+      } catch (e) { ctx.session = { step: 'idle' }; await ctx.reply(`❌ ${errText(e)}`); }
+      return;
     }
     if (s.step === 'wd_handle') {
       const handle = ctx.message.text.trim();
