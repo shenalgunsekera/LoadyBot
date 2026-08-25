@@ -29,7 +29,7 @@ function PlatformCard({ platform, invite }: { platform: 'telegram' | 'discord'; 
       <Head platform={platform} />
       <p className="dim" style={{ marginTop: 10 }}>
         {isTg
-          ? <>Add <strong>@LoadyBot</strong> to your group, then paste the code below in the chat.</>
+          ? <>Add <strong>@TLoadyBot</strong> to your group, then paste the code below in the chat.</>
           : <>Add Loady to your server, then paste the code in any channel to link it.</>}
       </p>
 

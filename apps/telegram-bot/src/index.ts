@@ -1,8 +1,10 @@
 import { Bot, type Context } from 'grammy';
 import {
-  accountForChat, redeemConnectCode, withAccount, isServiceable,
+  loadRootEnv, accountForChat, redeemConnectCode, withAccount, isServiceable,
   type Account,
 } from '@loady/core';
+
+loadRootEnv();
 
 /**
  * The ONE shared Loady Telegram bot. Every account adds this same bot to its

@@ -1,7 +1,9 @@
 import { Client, GatewayIntentBits, Events } from 'discord.js';
 import {
-  accountForChat, redeemConnectCode, withAccount, isServiceable, db,
+  loadRootEnv, accountForChat, redeemConnectCode, withAccount, isServiceable, db,
 } from '@loady/core';
+
+loadRootEnv();
 
 /**
  * The ONE shared Loady Discord bot. It lives in every account's server via the
