@@ -30,6 +30,24 @@ export async function accountsForUser(platform: BotPlatform, userId: string): Pr
                       where p.discord_user_id = ${userId} order by a.name`;
 }
 
+/** Resolve a club from its stable player deep-link token (t.me/Bot?start=<token>). */
+export async function accountByJoinToken(token: string): Promise<Account | null> {
+  const [row] = await db()<Account[]>`select * from accounts where join_token = ${token} limit 1`;
+  return row ?? null;
+}
+
+/**
+ * Is this Telegram/Discord user an ADMIN of this specific club? Authority is
+ * always per-account — resolve the club from the chat first, then check here.
+ * Never a global admin.
+ */
+export async function isAccountAdmin(accountId: string, platform: BotPlatform, userId: string): Promise<boolean> {
+  const [m] = platform === 'telegram'
+    ? await db()`select 1 from account_members where account_id = ${accountId} and telegram_user_id = ${userId} limit 1`
+    : await db()`select 1 from account_members where account_id = ${accountId} and discord_user_id = ${userId} limit 1`;
+  return !!m;
+}
+
 /** Redeem a one-time connect code and bind the chat to its account. */
 export async function redeemConnectCode(
   code: string,
