@@ -1,40 +1,56 @@
-export default function Team() {
+import { db } from '@loady/core';
+import { getCtx } from '@/lib/session';
+import { redirect } from 'next/navigation';
+import { inviteMember } from './actions';
+import { LinkButtons } from './link-buttons';
+
+export const dynamic = 'force-dynamic';
+
+interface Member {
+  id: string; email: string; role: string; display_name: string | null;
+  telegram_user_id: string | null; discord_user_id: string | null; accepted_at: Date | null;
+}
+
+export default async function Team() {
+  const ctx = await getCtx();
+  if (!ctx) redirect('/login');
+
+  const members = await db()<Member[]>`
+    select id, email, role, display_name, telegram_user_id, discord_user_id, accepted_at
+      from account_members where account_id = ${ctx.accountId} order by role = 'owner' desc, created_at`;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 860 }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <h1 style={{ fontSize: 28 }}>Team</h1>
-          <p className="dim" style={{ marginTop: 6 }}>Bring in your admins. They can run bot commands and manage cash-outs — every action tracked to their name.</p>
-        </div>
-        <button className="btn btn-primary">+ Invite admin</button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 900 }}>
+      <header>
+        <h1 style={{ fontSize: 28 }}>Team</h1>
+        <p className="dim" style={{ marginTop: 6 }}>Your admins can verify payments and manage cash-outs — every action tracked to their name.</p>
       </header>
 
-      {/* Invite form (TODO: server action → account_members insert + email invite) */}
+      {/* Invite */}
       <div className="card">
-        <div className="grid cols-3" style={{ alignItems: 'end' }}>
-          <div className="field"><label>Email</label><input placeholder="admin@club.com" /></div>
-          <div className="field"><label>Role</label>
-            <select><option>Admin</option><option>Owner</option></select>
-          </div>
-          <button className="btn btn-dark">Send invite</button>
-        </div>
-        <p className="stat-note" style={{ marginTop: 12 }}>They’ll get a magic-link email to join, and can link their Telegram / Discord so the bots recognise them.</p>
+        <form action={inviteMember} className="grid cols-3" style={{ alignItems: 'end' }}>
+          <div className="field"><label>Email</label><input name="email" type="email" placeholder="admin@club.com" required /></div>
+          <div className="field"><label>Role</label><select name="role"><option value="admin">Admin</option><option value="owner">Owner</option></select></div>
+          <button className="btn btn-dark" type="submit">Add admin</button>
+        </form>
+        <p className="stat-note" style={{ marginTop: 12 }}>They sign in with a magic link, then link their Telegram / Discord below so the bots recognise them.</p>
       </div>
 
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Member</th><th>Role</th><th>Bot identities</th><th>Status</th><th style={{ width: 60 }} /></tr></thead>
+          <thead><tr><th>Member</th><th>Role</th><th>Bot identities</th></tr></thead>
           <tbody>
-            <tr>
-              <td>
-                <div style={{ fontWeight: 600 }}>you@club.com</div>
-                <div className="stat-note">You</div>
-              </td>
-              <td><span className="badge muted">Owner</span></td>
-              <td className="dim" style={{ fontSize: 13 }}>Link Telegram · Link Discord</td>
-              <td><span className="badge ok">Active</span></td>
-              <td />
-            </tr>
+            {members.map((m) => (
+              <tr key={m.id}>
+                <td>
+                  <div style={{ fontWeight: 600 }}>{m.display_name ?? m.email}</div>
+                  {m.display_name && <div className="stat-note">{m.email}</div>}
+                  {m.id === ctx.memberId && <span className="badge muted" style={{ marginTop: 4 }}>You</span>}
+                </td>
+                <td><span className={`badge ${m.role === 'owner' ? 'ok' : 'muted'}`} style={{ textTransform: 'capitalize' }}>{m.role}</span></td>
+                <td><LinkButtons memberId={m.id} tgLinked={!!m.telegram_user_id} dcLinked={!!m.discord_user_id} /></td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

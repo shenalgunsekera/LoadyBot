@@ -1,6 +1,6 @@
 import { Bot, Context, InlineKeyboard, session, type SessionFlavor } from 'grammy';
 import {
-  loadRootEnv, accountForChat, accountByJoinToken, redeemConnectCode, isAccountAdmin,
+  loadRootEnv, accountForChat, accountByJoinToken, redeemConnectCode, redeemLinkCode, isAccountAdmin,
   withAccount, isServiceable, type Account,
 } from '@loady/core';
 import {
@@ -47,6 +47,14 @@ bot.command('connect', async (ctx) => {
   const title = ctx.chat && 'title' in ctx.chat ? ctx.chat.title ?? null : null;
   const r = await redeemConnectCode(code, 'telegram', String(ctx.chat!.id), title);
   await ctx.reply(r.ok ? '✅ Connected! This chat is now linked to your club on Loady.' : `❌ ${r.error}`);
+});
+
+// ── /link <CODE> — link your Telegram identity as an admin of your club ──────
+bot.command('link', async (ctx) => {
+  const code = (ctx.match ?? '').trim().toUpperCase();
+  if (!code) return ctx.reply('Send the link code from your dashboard, e.g. /link LOADY-AB12');
+  const r = await redeemLinkCode(code, 'telegram', String(ctx.from!.id));
+  await ctx.reply(r.ok ? `✅ Linked! You can now verify payments and run admin commands for *${r.accountName}*.` : `❌ ${r.error}`, { parse_mode: 'Markdown' });
 });
 
 // ── Resolve the club for every other update, gate on billing ─────────────────

@@ -48,6 +48,26 @@ export async function isAccountAdmin(accountId: string, platform: BotPlatform, u
   return !!m;
 }
 
+/** Redeem a one-time link code: stamp the member's Telegram/Discord user id so
+ *  the bots recognise them as an admin of that club. */
+export async function redeemLinkCode(
+  code: string, platform: BotPlatform, userId: string,
+): Promise<{ ok: true; accountName: string } | { ok: false; error: string }> {
+  return db().begin(async (tx) => {
+    const [c] = await tx<{ account_id: string; member_id: string; platform: BotPlatform; expires_at: Date; used_at: Date | null }[]>`
+      select account_id, member_id, platform, expires_at, used_at from member_link_codes where code = ${code} for update`;
+    if (!c) return { ok: false as const, error: 'That code is not valid.' };
+    if (c.used_at) return { ok: false as const, error: 'That code was already used.' };
+    if (c.platform !== platform) return { ok: false as const, error: 'That code is for the other platform.' };
+    if (c.expires_at < new Date()) return { ok: false as const, error: 'That code has expired.' };
+    if (platform === 'telegram') await tx`update account_members set telegram_user_id = ${userId} where id = ${c.member_id}`;
+    else await tx`update account_members set discord_user_id = ${userId} where id = ${c.member_id}`;
+    await tx`update member_link_codes set used_at = now() where code = ${code}`;
+    const [a] = await tx<{ name: string }[]>`select name from accounts where id = ${c.account_id}`;
+    return { ok: true as const, accountName: a!.name };
+  });
+}
+
 /** Redeem a one-time connect code and bind the chat to its account. */
 export async function redeemConnectCode(
   code: string,
