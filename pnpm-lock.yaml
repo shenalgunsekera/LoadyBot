@@ -6,7 +6,11 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      postgres:
+        specifier: ^3.4.5
+        version: 3.4.9
 
   apps/discord-bot:
     dependencies:

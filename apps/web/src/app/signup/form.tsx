@@ -8,13 +8,12 @@ import { SentNotice } from '@/components/sent-notice';
 
 const INIT: AuthState = { ok: false };
 
-export function SignupForm({ plan }: { plan: string }) {
+export function SignupForm() {
   const [state, action, pending] = useActionState(signUpAction, INIT);
   if (state.sent) return <SentNotice email={state.email!} devLink={state.devLink} />;
 
   return (
     <form action={action} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <input type="hidden" name="plan" value={plan} />
       <div className="field">
         <label htmlFor="name">Club name</label>
         <input id="name" name="name" placeholder="e.g. APT" autoComplete="organization" required />
@@ -28,7 +27,7 @@ export function SignupForm({ plan }: { plan: string }) {
         {pending ? 'Creating…' : 'Create my club →'}
       </button>
       <p className="dim" style={{ fontSize: 13, textAlign: 'center' }}>
-        You’re on the <strong style={{ textTransform: 'capitalize' }}>{plan}</strong> plan · free while you set up.
+        Every feature included · free while you set up.
       </p>
       <p className="dim" style={{ fontSize: 13, textAlign: 'center' }}>
         Already have a club? <Link href="/login" style={{ color: 'var(--accent-strong)', fontWeight: 600 }}>Log in</Link>

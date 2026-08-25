@@ -29,3 +29,18 @@ export async function getCtx(): Promise<Ctx | null> {
      limit 1`;
   return row ?? null;
 }
+
+export interface OpCtx { adminId: string; email: string; }
+
+/** Resolve the logged-in platform operator (us) from the `oid` cookie. */
+export async function getOpCtx(): Promise<OpCtx | null> {
+  const oid = (await cookies()).get('oid')?.value;
+  if (!oid) return null;
+  const [row] = await db()<OpCtx[]>`
+    select pa.id as admin_id, pa.email
+      from platform_sessions ps
+      join platform_admins pa on pa.id = ps.admin_id
+     where ps.token = ${oid} and ps.expires_at > now()
+     limit 1`;
+  return row ?? null;
+}

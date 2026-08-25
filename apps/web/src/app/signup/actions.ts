@@ -8,12 +8,11 @@ const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export async function signUpAction(_prev: AuthState, form: FormData): Promise<AuthState> {
   const name = String(form.get('name') ?? '').trim();
   const email = String(form.get('email') ?? '').trim().toLowerCase();
-  const plan = String(form.get('plan') ?? 'pro');
   if (name.length < 2) return { ok: false, error: 'Enter your club name.' };
   if (!EMAIL.test(email)) return { ok: false, error: 'Enter a valid email address.' };
   try {
-    // Idempotent: an existing member just gets a fresh magic link (no duplicate account).
-    if (!(await memberExists(email))) await provisionAccount({ name, email, plan });
+    // One all-in plan. Idempotent: an existing member just gets a fresh link.
+    if (!(await memberExists(email))) await provisionAccount({ name, email, plan: 'complete' });
     const { devLink } = await sendMagicLink(email);
     return { ok: true, sent: true, email, devLink };
   } catch (err) {

@@ -13,8 +13,11 @@ import { db, type Sql } from './db';
  */
 export function withAccount<T>(accountId: string, fn: (sql: Sql) => Promise<T>): Promise<T> {
   return db().begin(async (tx) => {
-    // set_config(..., true) = LOCAL to this transaction; it cannot leak to the
-    // next borrower of this pooled connection.
+    // Drop to loady_app (no BYPASSRLS) so row-level security actually applies —
+    // the connecting role (Supabase postgres) can bypass RLS otherwise. Both the
+    // role and the account setting are LOCAL to this transaction and reset when
+    // the pooled connection is handed back.
+    await tx`set local role loady_app`;
     await tx`select set_config('app.current_account', ${accountId}, true)`;
     return fn(tx as unknown as Sql);
   }) as Promise<T>;

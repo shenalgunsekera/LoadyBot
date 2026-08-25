@@ -77,17 +77,36 @@ async function deliver(email: string, link: string): Promise<void> {
   }).catch((err) => console.error('[email] send failed', err));
 }
 
-/** Redeem a magic-link token and open a 30-day session. Returns the session id. */
-export async function consumeTokenAndCreateSession(t: string): Promise<string | null> {
+/** Redeem a magic-link token (marks it used) and return the email, or null. */
+export async function consumeToken(t: string): Promise<string | null> {
   return db().begin(async (tx) => {
     const [lt] = await tx<{ email: string; expires_at: Date; used_at: Date | null }[]>`
       select email, expires_at, used_at from login_tokens where token = ${t} for update`;
     if (!lt || lt.used_at || lt.expires_at < new Date()) return null;
     await tx`update login_tokens set used_at = now() where token = ${t}`;
-    const [m] = await tx<{ id: string }[]>`select id from account_members where email = ${lt.email} order by created_at limit 1`;
-    if (!m) return null;
-    const sid = tok(32);
-    await tx`insert into sessions (token, member_id, expires_at) values (${sid}, ${m.id}, now() + interval '30 days')`;
-    return sid;
+    return lt.email;
   }) as Promise<string | null>;
+}
+
+export async function isPlatformAdmin(email: string): Promise<boolean> {
+  const [a] = await db()`select 1 from platform_admins where email = ${email.trim().toLowerCase()} limit 1`;
+  return !!a;
+}
+
+/** Open a 30-day operator session; returns the session token, or null. */
+export async function createPlatformSession(email: string): Promise<string | null> {
+  const [a] = await db()<{ id: string }[]>`select id from platform_admins where email = ${email.trim().toLowerCase()} limit 1`;
+  if (!a) return null;
+  const sid = tok(32);
+  await db()`insert into platform_sessions (token, admin_id, expires_at) values (${sid}, ${a.id}, now() + interval '30 days')`;
+  return sid;
+}
+
+/** Open a 30-day member session for the first account this email owns; or null. */
+export async function createMemberSession(email: string): Promise<string | null> {
+  const [m] = await db()<{ id: string }[]>`select id from account_members where email = ${email.trim().toLowerCase()} order by created_at limit 1`;
+  if (!m) return null;
+  const sid = tok(32);
+  await db()`insert into sessions (token, member_id, expires_at) values (${sid}, ${m.id}, now() + interval '30 days')`;
+  return sid;
 }

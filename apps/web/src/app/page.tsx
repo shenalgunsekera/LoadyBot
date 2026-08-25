@@ -9,14 +9,14 @@ const STEPS = [
   { n: '3', t: 'Go live', d: 'Players deposit, cash-outs queue, receipts file themselves. You just watch it run.' },
 ];
 
-const PACKAGES = [
-  { code: 'starter', name: 'Starter', price: 29, tagline: 'A new club finding its feet.',
-    features: ['2 admins', '4 payment methods', 'Telegram + Discord', 'Company-settled cash-outs'] },
-  { code: 'pro', name: 'Pro', price: 59, featured: true, tagline: 'Where most clubs land.',
-    features: ['6 admins', '12 payment methods', 'Peer-to-peer matching', 'Reversible-payment holds', 'Audit log & receipts'] },
-  { code: 'scale', name: 'Scale', price: 99, tagline: 'High volume, many hands.',
-    features: ['20 admins', 'Unlimited methods', 'Everything in Pro', 'Priority support', 'Queue controls & overrides'] },
-];
+const PLAN = {
+  price: 59,
+  features: [
+    'Unlimited admins', 'Unlimited payment methods', 'Telegram + Discord',
+    'Peer-to-peer matching', 'Reversible-payment holds', 'Full ledger, audit log & receipts',
+    'Queue controls & overrides', 'Priority support',
+  ],
+};
 
 export default function Landing() {
   return (
@@ -183,28 +183,23 @@ export default function Landing() {
       <section id="pricing" className="container" style={{ padding: '76px 24px 40px' }}>
         <Reveal style={{ textAlign: 'center', marginBottom: 44 }}>
           <span className="pill">Simple pricing</span>
-          <h2 style={{ marginTop: 16 }}>One flat price per club</h2>
-          <p className="dim" style={{ marginTop: 12 }}>No cut of your volume, ever. Cancel anytime.</p>
+          <h2 style={{ marginTop: 16 }}>One plan. Everything included.</h2>
+          <p className="dim" style={{ marginTop: 12 }}>No tiers, no upsells, no cut of your volume. Cancel anytime.</p>
         </Reveal>
-        <div className="grid cols-3">
-          {PACKAGES.map((p, i) => (
-            <Reveal key={p.code} delay={i * 100}>
-              <div className="card card-hover" style={{ height: '100%', position: 'relative', ...(p.featured ? { borderColor: 'var(--accent)', boxShadow: 'var(--shadow)' } : {}) }}>
-                {p.featured && <span className="pill" style={{ position: 'absolute', top: -13, left: 24 }}>Most popular</span>}
-                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18 }}>{p.name}</div>
-                <p className="dim" style={{ fontSize: 13.5, marginTop: 4 }}>{p.tagline}</p>
-                <div style={{ margin: '18px 0', display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 44, letterSpacing: '-0.03em' }}>${p.price}</span>
-                  <span className="muted">/ month</span>
-                </div>
-                <Link className={`btn ${p.featured ? 'btn-primary btn-shine' : 'btn-ghost'}`} href={`/signup?plan=${p.code}`} style={{ width: '100%' }}>Choose {p.name}</Link>
-                <ul style={{ listStyle: 'none', padding: 0, margin: '20px 0 0', display: 'flex', flexDirection: 'column', gap: 11 }}>
-                  {p.features.map((f) => <li key={f} style={{ display: 'flex', gap: 10, fontSize: 14, color: 'var(--ink-dim)' }}><Check /> {f}</li>)}
-                </ul>
-              </div>
-            </Reveal>
-          ))}
-        </div>
+        <Reveal style={{ maxWidth: 460, margin: '0 auto' }}>
+          <div className="card" style={{ borderColor: 'var(--accent)', boxShadow: 'var(--shadow)', position: 'relative', padding: 30 }}>
+            <span className="pill" style={{ position: 'absolute', top: -13, left: 30 }}>Everything, one price</span>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 20 }}>Loady</div>
+            <div style={{ margin: '16px 0 20px', display: 'flex', alignItems: 'baseline', gap: 5 }}>
+              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 52, letterSpacing: '-0.03em' }}>${PLAN.price}</span>
+              <span className="muted">/ month per club</span>
+            </div>
+            <Link className="btn btn-primary btn-shine" href="/signup" style={{ width: '100%' }}>Start your club →</Link>
+            <ul style={{ listStyle: 'none', padding: 0, margin: '22px 0 0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {PLAN.features.map((f) => <li key={f} style={{ display: 'flex', gap: 9, fontSize: 13.5, color: 'var(--ink-dim)' }}><Check /> {f}</li>)}
+            </ul>
+          </div>
+        </Reveal>
       </section>
 
       {/* ── CTA ─────────────────────────────────────────────────────────────── */}
