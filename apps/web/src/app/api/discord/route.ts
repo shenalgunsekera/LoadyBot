@@ -1,5 +1,5 @@
 import nacl from 'tweetnacl';
-import { accountForChat, redeemConnectCode, redeemLinkCode, isAccountAdmin, withAccount, isServiceable } from '@loady/core';
+import { accountForChat, redeemConnectCode, redeemLinkCode, isAccountAdmin, withAccount, isServiceable, storageConfigured, uploadReceipt } from '@loady/core';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -103,6 +103,14 @@ export async function POST(req: Request): Promise<Response> {
           return f;
         });
         if (!info) return reply('You don’t have a deposit waiting for a screenshot. Start one with `/deposit`.', { ephemeral: true });
+        try {
+          if (storageConfigured()) {
+            const bytes = new Uint8Array(await (await fetch(att.url)).arrayBuffer());
+            const ct = att.content_type ?? 'image/jpeg';
+            const path = await uploadReceipt(account.id, info.id, bytes, ct);
+            if (path) await withAccount(account.id, (sql) => sql`select receipt_add(${info.id}, ${path}, ${ct})`);
+          }
+        } catch (e) { console.error('[receipt store]', e); }
         await postChannel(i.channel_id, {
           content: `🧾 **Deposit to verify** — ${money(info.amount)} from ${info.name ?? username}. Check it landed, then Verify.\n${att.url}`,
           components: [row(button(`v|${info.id}`, 'Verify & credit', 3))],

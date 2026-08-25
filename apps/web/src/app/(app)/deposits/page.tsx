@@ -8,7 +8,7 @@ const money = (c: number) => `$${(Number(c) / 100).toLocaleString('en-US', { min
 
 interface Row {
   id: string; amount: number; status: string; payment_ref: string | null; withdraw_id: string | null;
-  method: string; name: string | null; created_at: Date;
+  method: string; name: string | null; created_at: Date; receipt_id: string | null;
 }
 
 const BADGE: Record<string, string> = { released: 'ok', awaiting_confirmation: 'warn', locked: 'muted', discarded: 'red' };
@@ -19,7 +19,8 @@ export default async function Deposits() {
 
   const rows = await withAccount(ctx.accountId, (sql) => sql<Row[]>`
     select f.id, f.amount, f.status, f.payment_ref, f.withdraw_id, pm.name as method,
-           dp.display_name as name, f.created_at
+           dp.display_name as name, f.created_at,
+           (select r.id from receipts r where r.ref_type = 'fill' and r.ref_id = f.id order by r.created_at desc limit 1) as receipt_id
       from fills f
       join deposit_requests d on d.id = f.deposit_id
       left join players dp on dp.id = d.player_id
@@ -48,12 +49,15 @@ export default async function Deposits() {
                 <td><span className={`badge ${BADGE[r.status] ?? 'muted'}`}>{r.status.replace(/_/g, ' ')}</span></td>
                 <td className="mono" style={{ fontSize: 11 }}>{r.payment_ref ?? '—'}</td>
                 <td>
-                  {r.status === 'awaiting_confirmation' && (
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <form action={verifyDeposit}><input type="hidden" name="id" value={r.id} /><button className="btn btn-primary btn-sm" type="submit">Verify</button></form>
-                      <form action={discardDeposit}><input type="hidden" name="id" value={r.id} /><button className="btn btn-ghost btn-sm" type="submit">Discard</button></form>
-                    </div>
-                  )}
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {r.receipt_id && <a className="btn btn-ghost btn-sm" href={`/api/receipt/${r.receipt_id}`} target="_blank" rel="noreferrer">🧾 Receipt</a>}
+                    {r.status === 'awaiting_confirmation' && (
+                      <>
+                        <form action={verifyDeposit}><input type="hidden" name="id" value={r.id} /><button className="btn btn-primary btn-sm" type="submit">Verify</button></form>
+                        <form action={discardDeposit}><input type="hidden" name="id" value={r.id} /><button className="btn btn-ghost btn-sm" type="submit">Discard</button></form>
+                      </>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

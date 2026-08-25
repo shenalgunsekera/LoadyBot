@@ -1,7 +1,7 @@
 import { Bot, Context, InlineKeyboard, session, type SessionFlavor } from 'grammy';
 import {
   accountForChat, accountByJoinToken, redeemConnectCode, redeemLinkCode, isAccountAdmin,
-  withAccount, isServiceable, type Account,
+  withAccount, isServiceable, storageConfigured, uploadReceipt, type Account,
 } from '@loady/core';
 import { money, parseAmount, resolvePlayer, platformsFor, methodsFor, adminChatFor, type Player } from './ui';
 import { pgSessions } from './session-store';
@@ -262,8 +262,21 @@ export function buildBot(): Bot<Ctx> {
     const fileId = ctx.message.photo?.at(-1)?.file_id ?? ctx.message.document?.file_id;
     if (!fileId) return ctx.reply('Send a picture of your payment confirmation.');
 
+    await withAccount(account.id, (sql) => sql`select fill_submit_proof(${s.fillId!}, null, null)`);
+
+    // Save the screenshot durably (Supabase Storage) + record the receipt row.
+    try {
+      if (storageConfigured()) {
+        const file = await ctx.api.getFile(fileId);
+        const dl = await fetch(`https://api.telegram.org/file/bot${process.env.TELEGRAM_TOKEN}/${file.file_path}`);
+        const bytes = new Uint8Array(await dl.arrayBuffer());
+        const ct = ctx.message.document?.mime_type ?? 'image/jpeg';
+        const path = await uploadReceipt(account.id, s.fillId!, bytes, ct);
+        if (path) await withAccount(account.id, (sql) => sql`select receipt_add(${s.fillId!}, ${path}, ${ct})`);
+      }
+    } catch (e) { console.error('[receipt store]', e); }
+
     const info = await withAccount(account.id, async (sql) => {
-      await sql`select fill_submit_proof(${s.fillId!}, null, null)`;
       const [f] = await sql<{ amount: number; name: string | null }[]>`
         select f.amount, dp.display_name as name from fills f
           left join deposit_requests d on d.id = f.deposit_id left join players dp on dp.id = d.player_id
