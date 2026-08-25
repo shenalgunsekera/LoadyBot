@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@loady/core": "workspace:*",
+    "@loady/telegram-bot": "workspace:*",
+    "grammy": "^1.30.0",
+    "tweetnacl": "^1.0.3",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

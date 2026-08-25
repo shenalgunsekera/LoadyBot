@@ -16,7 +16,7 @@ if (existsSync(envPath)) {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@loady/core'],
+  transpilePackages: ['@loady/core', '@loady/telegram-bot'],
   serverExternalPackages: ['postgres'],
 };
 
