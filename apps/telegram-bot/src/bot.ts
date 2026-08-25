@@ -230,8 +230,54 @@ export function buildBot(): Bot<Ctx> {
     await ctx.reply('What’s your username / ID on that platform? Send it here.');
   });
 
+  // Assign a club to a linked platform.
+  async function showClubs(ctx: Ctx, clubs: { id: string; name: string }[], platformId: string) {
+    const kb = new InlineKeyboard();
+    for (const c of clubs) kb.text(c.name, `ecc:${platformId}:${c.id}`).row();
+    await ctx.reply('Pick your club:', { reply_markup: kb });
+  }
+  bot.command('editclubs', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    const p = await player(ctx, account);
+    const { clubs, linked } = await withAccount(account.id, async (sql) => {
+      const clubs = await sql<{ id: string; name: string }[]>`select id, name from clubs order by name`;
+      const linked = await sql<{ platform_id: string; name: string }[]>`select pp.platform_id, pf.name from player_platforms pp join platforms pf on pf.id = pp.platform_id where pp.player_id = ${p.id}`;
+      return { clubs, linked };
+    });
+    if (clubs.length === 0) return ctx.reply('No clubs are set up yet — ask an admin.');
+    if (linked.length === 0) return ctx.reply('Link your game account first with /editplatform.');
+    if (linked.length === 1) return showClubs(ctx, clubs, linked[0]!.platform_id);
+    const kb = new InlineKeyboard();
+    for (const l of linked) kb.text(l.name, `ec:${l.platform_id}`).row();
+    await ctx.reply('Which account’s club do you want to set?', { reply_markup: kb });
+  });
+  bot.callbackQuery(/^ec:(.+)$/, async (ctx) => {
+    const account = ctx.account; if (!account) return ctx.answerCallbackQuery();
+    const clubs = await withAccount(account.id, (sql) => sql<{ id: string; name: string }[]>`select id, name from clubs order by name`);
+    await ctx.answerCallbackQuery();
+    await showClubs(ctx, clubs, ctx.match![1]!);
+  });
+  bot.callbackQuery(/^ecc:(.+):(.+)$/, async (ctx) => {
+    const account = ctx.account; if (!account) return ctx.answerCallbackQuery();
+    const p = await player(ctx, account);
+    await withAccount(account.id, (sql) => sql`select player_set_club(${p.id}, ${ctx.match![1]!}, ${ctx.match![2]!})`);
+    await ctx.answerCallbackQuery({ text: 'Saved ✓' });
+    await ctx.reply('✅ Club saved.');
+  });
+
+  bot.command('editdeposit', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    const methods = await methodsFor(account.id);
+    await ctx.reply(`💸 *You can deposit with:*\n${methods.map((m) => '• ' + m.name).join('\n') || '—'}\n\nStart anytime with /deposit.`, { parse_mode: 'Markdown' });
+  });
+  bot.command('editwithdraw', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    const methods = await methodsFor(account.id, true);
+    await ctx.reply(`💵 *You can get paid with:*\n${methods.map((m) => '• ' + m.name).join('\n') || '—'}\n\nWe’ll ask where to send it when you /withdraw.`, { parse_mode: 'Markdown' });
+  });
+
   // Registered so the menu matches the poker bot; behaviour lands in later steps.
-  for (const c of ['addtowithdraw', 'editclubs', 'editdeposit', 'editwithdraw', 'support']) {
+  for (const c of ['addtowithdraw', 'support']) {
     bot.command(c, async (ctx) => { await ctx.reply('That feature is coming soon.'); });
   }
 

@@ -30,7 +30,11 @@ const GUIDE = [
   '`/deposithistory` · `/withdrawalhistory` — your activity',
   '`/support` — message the team',
 ].join('\n');
-const SOON = ['addtowithdraw', 'editclubs', 'editdeposit', 'editwithdraw', 'support', 'pausewithdraw', 'resumewithdraw'];
+const SOON = ['addtowithdraw', 'support', 'pausewithdraw', 'resumewithdraw'];
+const methodList = (accountId: string, payout: boolean) =>
+  withAccount(accountId, (sql) => payout
+    ? sql<{ name: string }[]>`select name from payment_methods where enabled and payout_enabled order by sort_order, name`
+    : sql<{ name: string }[]>`select name from payment_methods where enabled order by sort_order, name`);
 
 async function postChannel(channelId: string, payload: unknown) {
   await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
@@ -125,6 +129,25 @@ export async function POST(req: Request): Promise<Response> {
         if (platforms.length === 0) return reply('No platforms are set up yet — ask an admin.', { ephemeral: true });
         return reply('Which game account do you want to link?', { ephemeral: true, components: [select('ep', 'Choose platform', platforms.map((p) => ({ label: p.name, value: p.id })))] });
       }
+      if (name === 'editclubs') {
+        const p = await touchPlayer(account.id, userId, username, i.channel_id);
+        const data = await withAccount(account.id, async (sql) => ({
+          clubs: await sql<{ id: string; name: string }[]>`select id, name from clubs order by name`,
+          linked: await sql<{ platform_id: string; name: string }[]>`select pp.platform_id, pf.name from player_platforms pp join platforms pf on pf.id = pp.platform_id where pp.player_id = ${p.id}`,
+        }));
+        if (data.clubs.length === 0) return reply('No clubs are set up yet — ask an admin.', { ephemeral: true });
+        if (data.linked.length === 0) return reply('Link your game account first with `/editplatform`.', { ephemeral: true });
+        if (data.linked.length === 1) return reply('Pick your club:', { ephemeral: true, components: [select(`ecc|${data.linked[0]!.platform_id}`, 'Choose club', data.clubs.map((c) => ({ label: c.name, value: c.id })))] });
+        return reply('Which account?', { ephemeral: true, components: [select('ec', 'Choose platform', data.linked.map((l) => ({ label: l.name, value: l.platform_id })))] });
+      }
+      if (name === 'editdeposit') {
+        const ms = await methodList(account.id, false);
+        return reply(`💸 **You can deposit with:**\n${ms.map((m) => '• ' + m.name).join('\n') || '—'}\nStart anytime with \`/deposit\`.`, { ephemeral: true });
+      }
+      if (name === 'editwithdraw') {
+        const ms = await methodList(account.id, true);
+        return reply(`💵 **You can get paid with:**\n${ms.map((m) => '• ' + m.name).join('\n') || '—'}\nWe’ll ask where to send it when you \`/withdraw\`.`, { ephemeral: true });
+      }
       if (SOON.includes(name)) return reply('That feature is coming soon.', { ephemeral: true });
 
       if (name === 'canceldeposit') {
@@ -164,6 +187,16 @@ export async function POST(req: Request): Promise<Response> {
       const value: string = i.data.values?.[0];
 
       if (cid === 'ep') return modal(`epm|${value}`, 'Link account', [textInput('uid', 'Your username / ID on that platform')]);
+      if (cid === 'ec') {
+        const clubs = await withAccount(account.id, (sql) => sql<{ id: string; name: string }[]>`select id, name from clubs order by name`);
+        return update('Pick your club:', [select(`ecc|${value}`, 'Choose club', clubs.map((c) => ({ label: c.name, value: c.id })))]);
+      }
+      if (cid.startsWith('ecc|')) {
+        const platformId = cid.split('|')[1]!;
+        const p = await touchPlayer(account.id, userId, username, i.channel_id);
+        await withAccount(account.id, (sql) => sql`select player_set_club(${p.id}, ${platformId}, ${value})`);
+        return update('✅ Club saved.');
+      }
       if (cid === 'dp' || cid === 'wp') {
         const payout = cid === 'wp';
         const methods = await withAccount(account.id, (sql) => payout
