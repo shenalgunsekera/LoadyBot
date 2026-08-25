@@ -11,6 +11,37 @@ export type Ctx = Context & SessionFlavor<SessionData> & { account?: Account; pl
 
 const errText = (e: unknown) => ((e as { message?: string })?.message ?? String(e)).replace(/^error:\s*/i, '');
 
+// Exactly the poker bot's player menu (see apps/bot/src/build.ts PLAYER_COMMANDS).
+export const PLAYER_COMMANDS = [
+  { command: 'start', description: 'Set up your account' },
+  { command: 'deposit', description: 'Add money' },
+  { command: 'canceldeposit', description: 'Cancel your latest unpaid deposit' },
+  { command: 'withdraw', description: 'Cash-out' },
+  { command: 'cancelwithdraw', description: 'Cancel a cash-out that has not been paid' },
+  { command: 'addtowithdraw', description: 'Add more to a cash-out already in the queue' },
+  { command: 'pending', description: 'Your pending cash-outs' },
+  { command: 'withdrawalhistory', description: 'Cash-outs paid to you & receipts' },
+  { command: 'deposithistory', description: 'Deposits you made & receipts' },
+  { command: 'editplatform', description: 'Add or remove ClubGG / Sportsbook' },
+  { command: 'editclubs', description: 'Change which clubs you play in' },
+  { command: 'editdeposit', description: 'Change how you deposit (payment methods)' },
+  { command: 'editwithdraw', description: 'Change how you get paid' },
+  { command: 'support', description: 'Message our team' },
+  { command: 'guide', description: 'What each command does' },
+  { command: 'stop', description: "Stop whatever you're in the middle of" },
+];
+
+const GUIDE = `*Loady — how it works*
+
+/deposit — add money to your account
+/withdraw — cash out
+/canceldeposit — cancel your latest unpaid deposit
+/cancelwithdraw — cancel a cash-out that hasn't been paid
+/pending — see your pending cash-outs
+/deposithistory · /withdrawalhistory — your past activity
+/support — message the team
+/stop — cancel whatever you're in the middle of`;
+
 /** Build the bot with every handler registered. Shared by the dev long-poll
  *  entry (index.ts) and the Vercel webhook (apps/web/api/telegram). */
 export function buildBot(): Bot<Ctx> {
@@ -128,6 +159,58 @@ export function buildBot(): Bot<Ctx> {
     await ctx.answerCallbackQuery();
     await ctx.reply('How much would you like to cash out? Send the number, e.g. `50`.', { parse_mode: 'Markdown' });
   });
+
+  bot.command('canceldeposit', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    const p = await player(ctx, account);
+    ctx.session = { step: 'idle' };
+    const [d] = await withAccount(account.id, (sql) => sql<{ id: string }[]>`select id from deposit_cancel(${p.id})`);
+    await ctx.reply(d ? '✅ Your deposit was cancelled.' : 'You don’t have an unpaid deposit to cancel. Start one with /deposit.');
+  });
+
+  bot.command('cancelwithdraw', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    const p = await player(ctx, account);
+    try {
+      const done = await withAccount(account.id, async (sql) => {
+        const [w] = await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled') order by created_at desc limit 1`;
+        if (!w) return false;
+        await sql`select withdraw_cancel(${w.id})`;
+        return true;
+      });
+      await ctx.reply(done ? '✅ Your cash-out was cancelled and the funds returned to your account.' : 'You don’t have a cash-out waiting to cancel.');
+    } catch (e) { await ctx.reply(`❌ ${errText(e)}`); }
+  });
+
+  bot.command('pending', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    const p = await player(ctx, account);
+    const rows = await withAccount(account.id, (sql) => sql<{ amount: number; amount_remaining: number; payout_handle: string | null }[]>`
+      select amount, amount_remaining, payout_handle from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled') order by created_at`);
+    if (rows.length === 0) return ctx.reply('You have no pending cash-outs.');
+    await ctx.reply(`⏳ *Your pending cash-outs:*\n${rows.map((r) => `• ${money(r.amount)} — ${money(r.amount_remaining)} still owed → \`${r.payout_handle}\``).join('\n')}`, { parse_mode: 'Markdown' });
+  });
+
+  const history = (label: string, table: 'deposit_requests' | 'withdraw_requests') =>
+    async (ctx: Ctx) => {
+      const account = await needClub(ctx); if (!account) return;
+      const p = await player(ctx, account);
+      const rows = await withAccount(account.id, (sql) => table === 'deposit_requests'
+        ? sql<{ amount: number; status: string }[]>`select amount, status from deposit_requests where player_id = ${p.id} order by created_at desc limit 10`
+        : sql<{ amount: number; status: string }[]>`select amount, status from withdraw_requests where player_id = ${p.id} order by created_at desc limit 10`);
+      if (rows.length === 0) return ctx.reply(`No ${label} yet.`);
+      await ctx.reply(`*Your ${label}:*\n${rows.map((r) => `• ${money(r.amount)} — ${r.status.replace(/_/g, ' ')}`).join('\n')}`, { parse_mode: 'Markdown' });
+    };
+  bot.command('deposithistory', history('deposits', 'deposit_requests'));
+  bot.command('withdrawalhistory', history('cash-outs', 'withdraw_requests'));
+
+  bot.command('stop', async (ctx) => { ctx.session = { step: 'idle' }; await ctx.reply('Okay, stopped. Start again anytime with /deposit or /withdraw.'); });
+  bot.command('guide', async (ctx) => { await ctx.reply(GUIDE, { parse_mode: 'Markdown' }); });
+
+  // Registered so the menu matches the poker bot; behaviour lands in later steps.
+  for (const c of ['addtowithdraw', 'editplatform', 'editclubs', 'editdeposit', 'editwithdraw', 'support']) {
+    bot.command(c, async (ctx) => { await ctx.reply('That feature is coming soon.'); });
+  }
 
   bot.on('message:text', async (ctx, next) => {
     if (ctx.message.text.startsWith('/')) return next();

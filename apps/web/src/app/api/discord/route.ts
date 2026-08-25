@@ -18,6 +18,19 @@ const modal = (id: string, title: string, inputs: unknown[]) => json({ type: 9, 
 
 const acctFor = (guildId: string | undefined) => (guildId ? accountForChat('discord', guildId) : Promise.resolve(null));
 const err = (e: unknown) => ((e as { message?: string })?.message ?? String(e)).replace(/^error:\s*/i, '');
+const touchPlayer = (accountId: string, userId: string, username: string, channelId: string) =>
+  withAccount(accountId, async (sql) => (await sql<{ id: string }[]>`select id from player_touch_dc(${userId}, ${username}, ${channelId})`)[0]!);
+
+const GUIDE = [
+  '**Loady — how it works**',
+  '`/deposit` — add money · `/withdraw` — cash out',
+  '`/receipt` — send your payment screenshot',
+  '`/canceldeposit` · `/cancelwithdraw` — cancel unpaid ones',
+  '`/pending` — your pending cash-outs',
+  '`/deposithistory` · `/withdrawalhistory` — your activity',
+  '`/support` — message the team',
+].join('\n');
+const SOON = ['addtowithdraw', 'editplatform', 'editclubs', 'editdeposit', 'editwithdraw', 'support', 'pausewithdraw', 'resumewithdraw'];
 
 async function postChannel(channelId: string, payload: unknown) {
   await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
@@ -95,6 +108,38 @@ export async function POST(req: Request): Promise<Response> {
           components: [row(button(`v|${info.id}`, 'Verify & credit', 3))],
         });
         return reply('✅ Got your screenshot! We’ll check it and add your money shortly.', { ephemeral: true });
+      }
+
+      if (name === 'ping') return reply('🏓 pong', { ephemeral: true });
+      if (name === 'guide') return reply(GUIDE, { ephemeral: true });
+      if (SOON.includes(name)) return reply('That feature is coming soon.', { ephemeral: true });
+
+      if (name === 'canceldeposit') {
+        const p = await touchPlayer(account.id, userId, username, i.channel_id);
+        const [d] = await withAccount(account.id, (sql) => sql<{ id: string }[]>`select id from deposit_cancel(${p.id})`);
+        return reply(d ? '✅ Your deposit was cancelled.' : 'You don’t have an unpaid deposit to cancel.', { ephemeral: true });
+      }
+      if (name === 'cancelwithdraw') {
+        const p = await touchPlayer(account.id, userId, username, i.channel_id);
+        const done = await withAccount(account.id, async (sql) => {
+          const [w] = await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled') order by created_at desc limit 1`;
+          if (!w) return false; await sql`select withdraw_cancel(${w.id})`; return true;
+        });
+        return reply(done ? '✅ Your cash-out was cancelled and the funds returned.' : 'You don’t have a cash-out waiting to cancel.', { ephemeral: true });
+      }
+      if (name === 'pending') {
+        const p = await touchPlayer(account.id, userId, username, i.channel_id);
+        const rows = await withAccount(account.id, (sql) => sql<{ amount: number; amount_remaining: number; payout_handle: string | null }[]>`
+          select amount, amount_remaining, payout_handle from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled') order by created_at`);
+        return reply(rows.length === 0 ? 'You have no pending cash-outs.' : `⏳ **Your pending cash-outs:**\n${rows.map((r) => `• ${money(r.amount)} — ${money(r.amount_remaining)} owed → \`${r.payout_handle}\``).join('\n')}`, { ephemeral: true });
+      }
+      if (name === 'deposithistory' || name === 'withdrawalhistory') {
+        const dep = name === 'deposithistory';
+        const p = await touchPlayer(account.id, userId, username, i.channel_id);
+        const rows = await withAccount(account.id, (sql) => dep
+          ? sql<{ amount: number; status: string }[]>`select amount, status from deposit_requests where player_id = ${p.id} order by created_at desc limit 10`
+          : sql<{ amount: number; status: string }[]>`select amount, status from withdraw_requests where player_id = ${p.id} order by created_at desc limit 10`);
+        return reply(rows.length === 0 ? `No ${dep ? 'deposits' : 'cash-outs'} yet.` : `**Your ${dep ? 'deposits' : 'cash-outs'}:**\n${rows.map((r) => `• ${money(r.amount)} — ${r.status.replace(/_/g, ' ')}`).join('\n')}`, { ephemeral: true });
       }
     }
 
