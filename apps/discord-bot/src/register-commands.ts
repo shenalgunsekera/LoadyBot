@@ -5,6 +5,8 @@ import { loadRootEnv } from '@loady/core';
 export const COMMANDS = [
   new SlashCommandBuilder().setName('deposit').setDescription('Add funds to your account'),
   new SlashCommandBuilder().setName('withdraw').setDescription('Cash out'),
+  new SlashCommandBuilder().setName('receipt').setDescription('Send the screenshot for your pending deposit')
+    .addAttachmentOption((o) => o.setName('screenshot').setDescription('Your payment screenshot').setRequired(true)),
   new SlashCommandBuilder().setName('link').setDescription('Link yourself as an admin (code from your dashboard)')
     .addStringOption((o) => o.setName('code').setDescription('The link code from your Team page').setRequired(true)),
   new SlashCommandBuilder().setName('connect').setDescription('(admin) Connect this server to your club')

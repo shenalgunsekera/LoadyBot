@@ -1,10 +1,10 @@
-# Deploying Loady
+# Deploying Loady — all on Vercel
 
-Three things go live: the **web dashboard** (Vercel), the **Telegram bot**, and the
-**Discord bot** (both long-running processes on Railway/Render/Fly). The database
-(Supabase) is already live and migrated.
+Everything ships in **one Vercel project**: the dashboard plus both bots as
+serverless routes (`/api/telegram`, `/api/discord`). No always-on host needed.
+The database (Supabase) is already live and migrated.
 
-Nothing here is destructive; each service just needs its environment variables.
+Nothing here is destructive; the project just needs its environment variables.
 
 ---
 
@@ -24,25 +24,29 @@ Nothing here is destructive; each service just needs its environment variables.
 > Magic links: without `RESEND_API_KEY`, the dashboard prints the login link on
 > screen (dev mode). For real users you'll want Resend (or any SMTP) configured.
 
+Add these env vars too (same Vercel project): `TELEGRAM_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`
+(any random string), `DISCORD_TOKEN`, `DISCORD_APP_ID`, `DISCORD_PUBLIC_KEY`.
+
 ---
 
-## 2. Telegram bot → Railway (persistent process)
+## 2. Point Telegram at the webhook
 
-1. **railway.app → New Project → Deploy from GitHub repo** → `LoadyBot`.
-2. In the service **Settings**:
-   - **Start Command:** `pnpm install --frozen-lockfile && pnpm -C apps/telegram-bot start`
-3. **Variables** — add: `DATABASE_URL`, `TELEGRAM_TOKEN`.
-4. Deploy. Logs should show `Loady bot starting`.
+Once the site is live, run this once (replace the token, domain, and secret):
 
-## 3. Discord bot → Railway (second service)
+```bash
+curl "https://api.telegram.org/bot<TELEGRAM_TOKEN>/setWebhook?url=https://<domain>/api/telegram&secret_token=<TELEGRAM_WEBHOOK_SECRET>"
+```
 
-1. In the same Railway project → **New → GitHub Repo** (same repo) as a second service.
-2. **Start Command:** `pnpm install --frozen-lockfile && pnpm -C apps/discord-bot start`
-3. **Variables:** `DATABASE_URL`, `DISCORD_TOKEN`, `DISCORD_APP_ID`.
-4. In the **Discord Developer Portal → your app → Bot**, ensure **Message Content
-   Intent** is ON.
-5. Deploy. On boot it registers its slash commands globally (may take up to ~1h to
-   appear; set `DISCORD_GUILD_ID` to a test server for instant registration).
+## 3. Point Discord at the interactions endpoint
+
+1. Register the slash commands once (from your machine, with `.env` filled):
+   `pnpm -C apps/discord-bot register`
+2. **Discord Developer Portal → your app → General Information → Interactions
+   Endpoint URL** = `https://<domain>/api/discord` → **Save**. Discord verifies it
+   with a test ping; the route answers it.
+
+> On Discord, players attach their screenshot with **`/receipt`** (serverless can't
+> watch channel uploads). Everything else is identical.
 
 ---
 

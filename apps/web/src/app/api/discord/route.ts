@@ -1,0 +1,163 @@
+import nacl from 'tweetnacl';
+import { accountForChat, redeemConnectCode, redeemLinkCode, isAccountAdmin, withAccount, isServiceable } from '@loady/core';
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+const money = (c: number) => `$${(c / 100).toFixed(2)}`;
+const EPH = 64;
+const json = (o: unknown) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });
+const reply = (content: string, opts: { ephemeral?: boolean; components?: unknown[] } = {}) =>
+  json({ type: 4, data: { content, flags: opts.ephemeral ? EPH : 0, components: opts.components ?? [] } });
+const update = (content: string, components: unknown[] = []) => json({ type: 7, data: { content, components } });
+const row = (c: unknown) => ({ type: 1, components: [c] });
+const select = (id: string, placeholder: string, options: { label: string; value: string }[]) => row({ type: 3, custom_id: id, placeholder, options });
+const button = (id: string, label: string, style: number) => ({ type: 2, custom_id: id, label, style });
+const textInput = (id: string, label: string) => row({ type: 4, custom_id: id, label, style: 1, required: true });
+const modal = (id: string, title: string, inputs: unknown[]) => json({ type: 9, data: { custom_id: id, title, components: inputs } });
+
+const acctFor = (guildId: string | undefined) => (guildId ? accountForChat('discord', guildId) : Promise.resolve(null));
+const err = (e: unknown) => ((e as { message?: string })?.message ?? String(e)).replace(/^error:\s*/i, '');
+
+async function postChannel(channelId: string, payload: unknown) {
+  await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+    method: 'POST', headers: { Authorization: `Bot ${process.env.DISCORD_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
+export async function POST(req: Request): Promise<Response> {
+  const sig = req.headers.get('x-signature-ed25519');
+  const ts = req.headers.get('x-signature-timestamp');
+  const body = await req.text();
+  const key = process.env.DISCORD_PUBLIC_KEY;
+  if (!sig || !ts || !key || !nacl.sign.detached.verify(Buffer.from(ts + body), Buffer.from(sig, 'hex'), Buffer.from(key, 'hex'))) {
+    return new Response('bad signature', { status: 401 });
+  }
+  const i = JSON.parse(body);
+  if (i.type === 1) return json({ type: 1 });               // PING → PONG
+
+  const guildId: string | undefined = i.guild_id;
+  const userId: string = i.member?.user?.id ?? i.user?.id;
+  const username: string = i.member?.user?.username ?? i.user?.username ?? 'player';
+
+  try {
+    // ── Slash commands ──
+    if (i.type === 2) {
+      const name: string = i.data.name;
+      if (name === 'connect') {
+        const code = String(i.data.options?.[0]?.value ?? '').toUpperCase();
+        const r = await redeemConnectCode(code, 'discord', guildId!, null);
+        return reply(r.ok ? '✅ Connected! This server is now linked to your club on Loady.' : `❌ ${r.error}`, { ephemeral: true });
+      }
+      if (name === 'link') {
+        const code = String(i.data.options?.[0]?.value ?? '').toUpperCase();
+        const r = await redeemLinkCode(code, 'discord', userId);
+        return reply(r.ok ? `✅ Linked! You can verify payments for **${r.accountName}**.` : `❌ ${r.error}`, { ephemeral: true });
+      }
+      const account = await acctFor(guildId);
+      if (!account) return reply('This server isn’t connected to a club yet. An admin can run `/connect`.', { ephemeral: true });
+      if (!isServiceable(account.status)) return reply('This club is paused right now.', { ephemeral: true });
+
+      if (name === 'deposit' || name === 'withdraw') {
+        const payout = name === 'withdraw';
+        const platforms = await withAccount(account.id, (sql) => sql<{ id: string; name: string }[]>`select id, name from platforms where enabled order by sort_order, name`);
+        if (platforms.length === 0) return reply('No platforms are set up yet — ask an admin.', { ephemeral: true });
+        const prefix = payout ? 'w' : 'd';
+        if (platforms.length === 1) {
+          const methods = await withAccount(account.id, (sql) => payout
+            ? sql<{ id: string; name: string }[]>`select id, name from payment_methods where enabled and payout_enabled order by sort_order, name`
+            : sql<{ id: string; name: string }[]>`select id, name from payment_methods where enabled order by sort_order, name`);
+          if (methods.length === 0) return reply('No methods set up yet — ask an admin.', { ephemeral: true });
+          return reply(payout ? 'How would you like to get paid?' : 'How would you like to pay?', {
+            ephemeral: true, components: [select(`${prefix}m|${platforms[0]!.id}`, 'Choose a method', methods.map((m) => ({ label: m.name, value: m.id })))],
+          });
+        }
+        return reply('Which account?', { ephemeral: true, components: [select(`${prefix}p`, 'Choose account', platforms.map((p) => ({ label: p.name, value: p.id })))] });
+      }
+
+      if (name === 'receipt') {
+        const attId: string | undefined = i.data.options?.find((o: { name: string }) => o.name === 'screenshot')?.value;
+        const att = attId ? i.data.resolved?.attachments?.[attId] : null;
+        if (!att) return reply('Attach your payment screenshot: `/receipt screenshot:<image>`.', { ephemeral: true });
+        const info = await withAccount(account.id, async (sql) => {
+          const [f] = await sql<{ id: string; amount: number; name: string | null }[]>`
+            select f.id, f.amount, dp.display_name as name from fills f
+              join deposit_requests d on d.id = f.deposit_id join players dp on dp.id = d.player_id
+             where dp.discord_user_id = ${userId} and f.status = 'locked' order by f.created_at desc limit 1`;
+          if (!f) return null;
+          await sql`select fill_submit_proof(${f.id}, null, null)`;
+          return f;
+        });
+        if (!info) return reply('You don’t have a deposit waiting for a screenshot. Start one with `/deposit`.', { ephemeral: true });
+        await postChannel(i.channel_id, {
+          content: `🧾 **Deposit to verify** — ${money(info.amount)} from ${info.name ?? username}. Check it landed, then Verify.\n${att.url}`,
+          components: [row(button(`v|${info.id}`, 'Verify & credit', 3))],
+        });
+        return reply('✅ Got your screenshot! We’ll check it and add your money shortly.', { ephemeral: true });
+      }
+    }
+
+    // ── Select menus & buttons ──
+    if (i.type === 3) {
+      const account = await acctFor(guildId);
+      if (!account) return update('This server isn’t connected.');
+      const cid: string = i.data.custom_id;
+      const value: string = i.data.values?.[0];
+
+      if (cid === 'dp' || cid === 'wp') {
+        const payout = cid === 'wp';
+        const methods = await withAccount(account.id, (sql) => payout
+          ? sql<{ id: string; name: string }[]>`select id, name from payment_methods where enabled and payout_enabled order by sort_order, name`
+          : sql<{ id: string; name: string }[]>`select id, name from payment_methods where enabled order by sort_order, name`);
+        return update(payout ? 'How would you like to get paid?' : 'How would you like to pay?', [select(`${payout ? 'w' : 'd'}m|${value}`, 'Choose a method', methods.map((m) => ({ label: m.name, value: m.id })))]);
+      }
+      const [k, platformId] = cid.split('|');
+      if (k === 'dm') return modal(`da|${platformId}|${value}`, 'Add funds', [textInput('amount', 'Amount (e.g. 50)')]);
+      if (k === 'wm') return modal(`wa|${platformId}|${value}`, 'Cash out', [textInput('amount', 'Amount (e.g. 50)'), textInput('handle', 'Where to send it (payout handle)')]);
+
+      if (k === 'v' || k === 'x') {
+        if (!(await isAccountAdmin(account.id, 'discord', userId))) return reply('Admins only.', { ephemeral: true });
+        const fillId = platformId!;
+        if (k === 'v') {
+          await withAccount(account.id, (sql) => sql`select fill_release(${fillId}, null, 'verified in discord')`);
+          return update(`✅ Verified & credited by ${username}.`);
+        }
+        await withAccount(account.id, (sql) => sql`update fills set status = 'discarded' where id = ${fillId} and status = 'awaiting_confirmation'`);
+        return update('🗑 Discarded.');
+      }
+    }
+
+    // ── Modal submit ──
+    if (i.type === 5) {
+      const account = await acctFor(guildId);
+      if (!account) return reply('This server isn’t connected.', { ephemeral: true });
+      const [k, platformId, methodId] = i.data.custom_id.split('|');
+      const fields: Record<string, string> = {};
+      for (const r of i.data.components) for (const c of r.components) fields[c.custom_id] = c.value;
+      const amount = Math.round(parseFloat(String(fields.amount).replace(/[$,\s]/g, '')) * 100);
+      if (!Number.isFinite(amount) || amount <= 0) return reply('That doesn’t look like an amount.', { ephemeral: true });
+      const player = await withAccount(account.id, async (sql) => (await sql<{ id: string }[]>`select id from player_touch_dc(${userId}, ${username}, ${i.channel_id})`)[0]!);
+
+      if (k === 'da') {
+        const info = await withAccount(account.id, async (sql) => {
+          const [d] = await sql<{ id: string }[]>`select id from deposit_create(${player.id}, ${platformId!}, ${methodId!}, ${amount})`;
+          const [f] = await sql<{ payout_handle: string | null; club_handle: string | null }[]>`
+            select f.payout_handle, pm.club_handle from fills f join payment_methods pm on pm.id = f.method_id where f.deposit_id = ${d!.id} order by seq limit 1`;
+          return f!;
+        });
+        const handle = info.payout_handle ?? info.club_handle;
+        return reply(`💸 **Send ${money(amount)} now.**\n${handle ? `Pay to: \`${handle}\`\n` : 'An admin will tell you where to pay.\n'}\nThen run **/receipt** and attach your screenshot.`, { ephemeral: true });
+      }
+      if (k === 'wa') {
+        const handle = String(fields.handle ?? '').trim();
+        if (!handle) return reply('We need to know where to send your money.', { ephemeral: true });
+        const [w] = await withAccount(account.id, (sql) => sql<{ amount: number }[]>`select amount from withdraw_create(${player.id}, ${platformId!}, ${methodId!}, ${amount}, ${handle})`);
+        return reply(`✅ **Cash-out for ${money(w!.amount)} is in the queue.** We’ll pay \`${handle}\` and message you when it’s done.`, { ephemeral: true });
+      }
+    }
+  } catch (e) {
+    return reply(`❌ ${err(e)}`, { ephemeral: true });
+  }
+  return json({ type: 4, data: { content: 'Unsupported.', flags: EPH } });
+}
