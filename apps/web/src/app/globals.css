@@ -217,3 +217,10 @@ tr:last-child td { border-bottom: none; }
 @media (max-width: 560px) {
   .chip-float { display: none; }
 }
+
+/* Auth split layout */
+.auth-split { display: grid; grid-template-columns: 1fr 1fr; }
+@media (max-width: 820px) {
+  .auth-split { grid-template-columns: 1fr; }
+  .auth-brand { display: none !important; }
+}
