@@ -1,20 +1,53 @@
-const STATS = [
-  { label: "Cash you're holding", value: '$—', note: 'in your accounts' },
-  { label: 'Owed to players', value: '$—', note: 'in play + waiting to pay out' },
-  { label: 'Received (7 days)', value: '$—', note: 'deposits', pos: true },
-  { label: 'Paid out (7 days)', value: '$—', note: 'cash-outs' },
-];
+import { withAccount } from '@loady/core';
+import { getCtx } from '@/lib/session';
+import { redirect } from 'next/navigation';
 
-export default function Overview() {
+export const dynamic = 'force-dynamic';
+
+const money = (c: number) => `$${(Number(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+export default async function Overview() {
+  const ctx = await getCtx();
+  if (!ctx) redirect('/login');
+
+  const data = await withAccount(ctx.accountId, async (sql) => {
+    const [pos] = await sql<{ float: number; on_platform: number; escrow: number; fees: number }[]>`
+      select coalesce((select sum(balance) from ledger_accounts where kind='owner_float'),0) as float,
+             coalesce((select sum(balance) from ledger_accounts where kind='house_settlement'),0) as on_platform,
+             coalesce((select sum(balance) from ledger_accounts where kind='player_escrow'),0) as escrow,
+             coalesce((select sum(balance) from ledger_accounts where kind='house_rake'),0) as fees`;
+    const toVerify = await sql<{ id: string; amount: number; name: string | null; created_at: Date }[]>`
+      select f.id, f.amount, dp.display_name as name, f.submitted_at as created_at
+        from fills f join deposit_requests d on d.id = f.deposit_id
+        left join players dp on dp.id = d.player_id
+       where f.status = 'awaiting_confirmation' and f.deposit_id is not null
+       order by f.submitted_at limit 20`;
+    const queue = await sql<{ id: string; amount_remaining: number; payout_handle: string | null; name: string | null; position: number }[]>`
+      select q.id, q.amount_remaining, q.payout_handle, dp.display_name as name, q.queue_position as position
+        from v_withdraw_queue q left join players dp on dp.id = q.player_id
+       order by q.queue_position limit 20`;
+    return { pos: pos!, toVerify, queue };
+  });
+
+  const held = -Number(data.pos.float);       // owner_float is negative while holding cash
+  const owed = Number(data.pos.on_platform) + Number(data.pos.escrow);
+
+  const stats = [
+    { label: "Cash you're holding", value: money(held), note: 'from company-settled deposits', pos: held >= 0 },
+    { label: 'Owed to players', value: money(owed), note: 'on the tables + queued cash-outs' },
+    { label: 'In cash-out queue', value: money(Number(data.pos.escrow)), note: `${data.queue.length} waiting` },
+    { label: 'Fees earned', value: money(Number(data.pos.fees)), note: 'rake', pos: true },
+  ];
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <header>
         <h1 style={{ fontSize: 28 }}>Overview</h1>
-        <p className="dim" style={{ marginTop: 6 }}>Your money position, and everything waiting on a person.</p>
+        <p className="dim" style={{ marginTop: 6 }}>Your money position, and everything waiting on you.</p>
       </header>
 
       <div className="grid cols-4">
-        {STATS.map((s) => (
+        {stats.map((s) => (
           <div className="card" key={s.label}>
             <div className="stat-label">{s.label}</div>
             <div className={`stat-value ${s.pos ? 'pos' : ''}`}>{s.value}</div>
@@ -23,18 +56,31 @@ export default function Overview() {
         ))}
       </div>
 
-      {/* Wiring point: this reuses the money engine (fills/ledger) once ported per
-          account. For now, a friendly empty state guides new accounts to connect. */}
-      <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
-        <div style={{ width: 46, height: 46, borderRadius: 14, background: 'var(--accent-soft)', display: 'grid', placeItems: 'center', margin: '0 auto 14px' }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-strong)" strokeWidth="1.9" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+        <div>
+          <h3 style={{ marginBottom: 12 }}>Deposits to verify ({data.toVerify.length})</h3>
+          <div className="table-wrap">
+            <table><thead><tr><th>Player</th><th className="num">Amount</th></tr></thead>
+              <tbody>
+                {data.toVerify.length === 0 ? <tr><td colSpan={2} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>All clear 🎉</td></tr>
+                  : data.toVerify.map((d) => (
+                    <tr key={d.id}><td>{d.name ?? '—'}</td><td className="num" style={{ textAlign: 'right' }}>{money(d.amount)}</td></tr>
+                  ))}
+              </tbody></table>
+          </div>
         </div>
-        <h3>Connect a chat to go live</h3>
-        <p className="dim" style={{ marginTop: 8, maxWidth: 420, marginInline: 'auto' }}>
-          Add Loady to your Telegram group or Discord server and your players can start depositing.
-          Your numbers show up here the moment money moves.
-        </p>
-        <a className="btn btn-primary" href="/connect" style={{ marginTop: 20 }}>Connect chats →</a>
+        <div>
+          <h3 style={{ marginBottom: 12 }}>Cash-out queue ({data.queue.length})</h3>
+          <div className="table-wrap">
+            <table><thead><tr><th>#</th><th>Player</th><th className="num">Owed</th></tr></thead>
+              <tbody>
+                {data.queue.length === 0 ? <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>Nobody waiting.</td></tr>
+                  : data.queue.map((w) => (
+                    <tr key={w.id}><td className="mono">{w.position}</td><td>{w.name ?? '—'}</td><td className="num" style={{ textAlign: 'right' }}>{money(w.amount_remaining)}</td></tr>
+                  ))}
+              </tbody></table>
+          </div>
+        </div>
       </div>
     </div>
   );
