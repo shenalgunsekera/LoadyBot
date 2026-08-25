@@ -33,7 +33,7 @@ export default async function Team() {
           <div className="field"><label>Role</label><select name="role"><option value="admin">Admin</option><option value="owner">Owner</option></select></div>
           <button className="btn btn-dark" type="submit">Add admin</button>
         </form>
-        <p className="stat-note" style={{ marginTop: 12 }}>They sign in with a magic link, then link their Telegram / Discord below so the bots recognise them.</p>
+        <p className="stat-note" style={{ marginTop: 12 }}>They register at the sign-up page with this email + a password, then link their Telegram / Discord below so the bots recognise them.</p>
       </div>
 
       <div className="table-wrap">
