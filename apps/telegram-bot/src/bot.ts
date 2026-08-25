@@ -207,8 +207,31 @@ export function buildBot(): Bot<Ctx> {
   bot.command('stop', async (ctx) => { ctx.session = { step: 'idle' }; await ctx.reply('Okay, stopped. Start again anytime with /deposit or /withdraw.'); });
   bot.command('guide', async (ctx) => { await ctx.reply(GUIDE, { parse_mode: 'Markdown' }); });
 
+  // Link / edit a game account (ClubGG / Sportsbook).
+  bot.command('editplatform', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    const p = await player(ctx, account);
+    const { platforms, linked } = await withAccount(account.id, async (sql) => {
+      const platforms = await sql<{ id: string; name: string }[]>`select id, name from platforms where enabled order by sort_order, name`;
+      const linked = await sql<{ platform_id: string; platform_uid: string | null }[]>`select platform_id, platform_uid from player_platforms where player_id = ${p.id}`;
+      return { platforms, linked };
+    });
+    const map = new Map(linked.map((l) => [l.platform_id, l.platform_uid]));
+    if (platforms.length === 0) return ctx.reply('No platforms are set up yet — ask an admin.');
+    const lines = platforms.map((pl) => (map.has(pl.id) ? `✅ *${pl.name}*: \`${map.get(pl.id)}\`` : `▫️ *${pl.name}*: not linked`));
+    const kb = new InlineKeyboard();
+    for (const pl of platforms) kb.text(map.has(pl.id) ? `Change ${pl.name}` : `Add ${pl.name}`, `ep:${pl.id}`).row();
+    await ctx.reply(`*Your game accounts:*\n${lines.join('\n')}\n\nTap to add or change one.`, { parse_mode: 'Markdown', reply_markup: kb });
+  });
+  bot.callbackQuery(/^ep:(.+)$/, async (ctx) => {
+    if (!ctx.account) return ctx.answerCallbackQuery();
+    ctx.session = { step: 'ep_uid', platformId: ctx.match![1]! };
+    await ctx.answerCallbackQuery();
+    await ctx.reply('What’s your username / ID on that platform? Send it here.');
+  });
+
   // Registered so the menu matches the poker bot; behaviour lands in later steps.
-  for (const c of ['addtowithdraw', 'editplatform', 'editclubs', 'editdeposit', 'editwithdraw', 'support']) {
+  for (const c of ['addtowithdraw', 'editclubs', 'editdeposit', 'editwithdraw', 'support']) {
     bot.command(c, async (ctx) => { await ctx.reply('That feature is coming soon.'); });
   }
 
@@ -234,6 +257,13 @@ export function buildBot(): Bot<Ctx> {
         await ctx.reply(`💸 *Send ${money(amount)} now.*\n\n` + (handle ? `Pay to: \`${handle}\`\n\n` : `An admin will send you where to pay shortly.\n\n`) + `Once you’ve paid, send a *screenshot* here so we can confirm it and add your money.`, { parse_mode: 'Markdown' });
       } catch (e) { ctx.session = { step: 'idle' }; await ctx.reply(`❌ ${errText(e)}`); }
       return;
+    }
+    if (s.step === 'ep_uid') {
+      const uid = ctx.message.text.trim();
+      const p = await player(ctx, account);
+      await withAccount(account.id, (sql) => sql`select player_set_platform(${p.id}, ${s.platformId!}, ${uid})`);
+      ctx.session = { step: 'idle' };
+      return ctx.reply('✅ Saved. You can /deposit or /withdraw now.');
     }
     if (s.step === 'wd_amount') {
       const amount = parseAmount(ctx.message.text);

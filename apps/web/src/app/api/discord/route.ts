@@ -30,7 +30,7 @@ const GUIDE = [
   '`/deposithistory` · `/withdrawalhistory` — your activity',
   '`/support` — message the team',
 ].join('\n');
-const SOON = ['addtowithdraw', 'editplatform', 'editclubs', 'editdeposit', 'editwithdraw', 'support', 'pausewithdraw', 'resumewithdraw'];
+const SOON = ['addtowithdraw', 'editclubs', 'editdeposit', 'editwithdraw', 'support', 'pausewithdraw', 'resumewithdraw'];
 
 async function postChannel(channelId: string, payload: unknown) {
   await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
@@ -120,6 +120,11 @@ export async function POST(req: Request): Promise<Response> {
 
       if (name === 'ping') return reply('🏓 pong', { ephemeral: true });
       if (name === 'guide') return reply(GUIDE, { ephemeral: true });
+      if (name === 'editplatform') {
+        const platforms = await withAccount(account.id, (sql) => sql<{ id: string; name: string }[]>`select id, name from platforms where enabled order by sort_order, name`);
+        if (platforms.length === 0) return reply('No platforms are set up yet — ask an admin.', { ephemeral: true });
+        return reply('Which game account do you want to link?', { ephemeral: true, components: [select('ep', 'Choose platform', platforms.map((p) => ({ label: p.name, value: p.id })))] });
+      }
       if (SOON.includes(name)) return reply('That feature is coming soon.', { ephemeral: true });
 
       if (name === 'canceldeposit') {
@@ -158,6 +163,7 @@ export async function POST(req: Request): Promise<Response> {
       const cid: string = i.data.custom_id;
       const value: string = i.data.values?.[0];
 
+      if (cid === 'ep') return modal(`epm|${value}`, 'Link account', [textInput('uid', 'Your username / ID on that platform')]);
       if (cid === 'dp' || cid === 'wp') {
         const payout = cid === 'wp';
         const methods = await withAccount(account.id, (sql) => payout
@@ -188,9 +194,17 @@ export async function POST(req: Request): Promise<Response> {
       const [k, platformId, methodId] = i.data.custom_id.split('|');
       const fields: Record<string, string> = {};
       for (const r of i.data.components) for (const c of r.components) fields[c.custom_id] = c.value;
+      const player = await touchPlayer(account.id, userId, username, i.channel_id);
+
+      if (k === 'epm') {
+        const uid = String(fields.uid ?? '').trim();
+        if (!uid) return reply('Enter your username / ID.', { ephemeral: true });
+        await withAccount(account.id, (sql) => sql`select player_set_platform(${player.id}, ${platformId!}, ${uid})`);
+        return reply('✅ Saved. You can /deposit or /withdraw now.', { ephemeral: true });
+      }
+
       const amount = Math.round(parseFloat(String(fields.amount).replace(/[$,\s]/g, '')) * 100);
       if (!Number.isFinite(amount) || amount <= 0) return reply('That doesn’t look like an amount.', { ephemeral: true });
-      const player = await withAccount(account.id, async (sql) => (await sql<{ id: string }[]>`select id from player_touch_dc(${userId}, ${username}, ${i.channel_id})`)[0]!);
 
       if (k === 'da') {
         const info = await withAccount(account.id, async (sql) => {
