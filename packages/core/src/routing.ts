@@ -90,3 +90,43 @@ export async function redeemConnectCode(
     return { ok: true as const, accountId: c.account_id };
   });
 }
+
+/**
+ * The account a bot user is an admin/owner of. One admin = one club, so at most
+ * one row; owner wins if somehow both. This is what lets an admin add the bot to
+ * a new chat and have it bind automatically — no connect code.
+ */
+export async function accountForAdminUser(platform: BotPlatform, userId: string): Promise<Account | null> {
+  const sql = db();
+  const [a] = platform === 'telegram'
+    ? await sql<Account[]>`select a.* from account_members m join accounts a on a.id = m.account_id
+                            where m.telegram_user_id = ${userId} order by (m.role = 'owner') desc limit 1`
+    : await sql<Account[]>`select a.* from account_members m join accounts a on a.id = m.account_id
+                            where m.discord_user_id = ${userId} order by (m.role = 'owner') desc limit 1`;
+  return a ?? null;
+}
+
+/**
+ * Bind a chat to an account if it isn't already bound. Returns 'new' when it was
+ * just bound, 'exists' when this chat already belongs to this account, and 'taken'
+ * when it belongs to a DIFFERENT account (we never steal a chat).
+ */
+export async function autoBindChat(
+  accountId: string, platform: BotPlatform, chatId: string, title: string | null,
+): Promise<'new' | 'exists' | 'taken'> {
+  const [existing] = await db()<{ account_id: string }[]>`
+    select account_id from chat_bindings where platform = ${platform} and chat_id = ${chatId} limit 1`;
+  if (existing) return existing.account_id === accountId ? 'exists' : 'taken';
+  await db()`insert into chat_bindings (account_id, platform, chat_id, title)
+             values (${accountId}, ${platform}, ${chatId}, ${title})
+             on conflict (platform, chat_id) do nothing`;
+  return 'new';
+}
+
+/** Mark a chat (already bound to this account) as the club's admin/payments group. */
+export async function markAdminChat(accountId: string, platform: BotPlatform, chatId: string): Promise<boolean> {
+  const [row] = await db()<{ id: string }[]>`
+    update chat_bindings set kind = 'admin'
+     where platform = ${platform} and chat_id = ${chatId} and account_id = ${accountId} returning id`;
+  return !!row;
+}

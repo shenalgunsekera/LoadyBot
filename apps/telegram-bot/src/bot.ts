@@ -1,6 +1,7 @@
 import { Bot, Context, InlineKeyboard, session, type SessionFlavor } from 'grammy';
 import {
   accountForChat, accountByJoinToken, redeemConnectCode, redeemLinkCode, isAccountAdmin,
+  accountForAdminUser, autoBindChat, markAdminChat,
   withAccount, isServiceable, botEnabled, storageConfigured, uploadReceipt, platformTotals, type Account,
 } from '@loady/core';
 import { money, parseAmount, resolvePlayer, platformsFor, methodsFor, adminChatFor, type Player } from './ui';
@@ -82,9 +83,33 @@ export function buildBot(): Bot<Ctx> {
     await ctx.reply(r.ok ? `✅ Linked! You can now verify payments and run admin commands for *${r.accountName}*.` : `❌ ${r.error}`, { parse_mode: 'Markdown' });
   });
 
+  // Auto-connect: the moment a linked admin adds the bot to a group, bind that
+  // group to their club — no /connect code. One admin = one club, so unambiguous.
+  bot.on('my_chat_member', async (ctx) => {
+    const status = ctx.myChatMember.new_chat_member.status;
+    if (status !== 'member' && status !== 'administrator') return; // added or promoted only
+    if (!ctx.from || ctx.chat.type === 'private') return;
+    const acc = await accountForAdminUser('telegram', String(ctx.from.id));
+    if (!acc || !botEnabled(acc, 'telegram')) return; // only a linked, enabled admin can bind
+    const res = await autoBindChat(acc.id, 'telegram', String(ctx.chat.id), ctx.chat.title ?? null);
+    if (res === 'new') {
+      await ctx.reply(`✅ Connected this chat to *${acc.name}*. Players here can /deposit and /withdraw.\nIf this is your payments group, run /setadmingroup.`, { parse_mode: 'Markdown' }).catch(() => {});
+    }
+  });
+
   bot.use(async (ctx, next) => {
     if (ctx.chat) {
-      const account = await accountForChat('telegram', String(ctx.chat.id));
+      let account = await accountForChat('telegram', String(ctx.chat.id));
+      // Lazy fallback: bot was already in the chat before it was linked. The first
+      // message from a linked admin binds it (covers a missed my_chat_member event).
+      if (!account && ctx.from && ctx.chat.type !== 'private') {
+        const adminAcc = await accountForAdminUser('telegram', String(ctx.from.id));
+        if (adminAcc && botEnabled(adminAcc, 'telegram')) {
+          const res = await autoBindChat(adminAcc.id, 'telegram', String(ctx.chat.id), ctx.chat.title ?? null);
+          if (res !== 'taken') account = adminAcc;
+          if (res === 'new') await ctx.reply(`✅ Connected this chat to *${adminAcc.name}*.`, { parse_mode: 'Markdown' }).catch(() => {});
+        }
+      }
       if (account) {
         if (!botEnabled(account, 'telegram')) {
           if (ctx.message?.text?.startsWith('/')) {
@@ -210,6 +235,17 @@ export function buildBot(): Bot<Ctx> {
 
   bot.command('stop', async (ctx) => { ctx.session = { step: 'idle' }; await ctx.reply('Okay, stopped. Start again anytime with /deposit or /withdraw.'); });
   bot.command('guide', async (ctx) => { await ctx.reply(GUIDE, { parse_mode: 'Markdown' }); });
+
+  // Mark THIS group as the club's payments/admin group — verification cards land here.
+  bot.command('setadmingroup', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    if (ctx.chat?.type === 'private') return ctx.reply('Run this inside the group you want as your payments/admin group.');
+    if (!ctx.from || !(await isAccountAdmin(account.id, 'telegram', String(ctx.from.id)))) return ctx.reply('Admins only.');
+    const ok = await markAdminChat(account.id, 'telegram', String(ctx.chat.id));
+    await ctx.reply(ok
+      ? '✅ This group is now your payments/admin group — payment verification cards and admin alerts will come here.'
+      : 'Couldn’t set this group. Make sure I’m connected to your club here first.');
+  });
 
   // Admin panel: money in / out per platform (ClubGG, Sportsbook, …).
   bot.command('totals', async (ctx) => {
