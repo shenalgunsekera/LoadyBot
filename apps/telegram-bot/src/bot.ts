@@ -177,7 +177,7 @@ export function buildBot(): Bot<Ctx> {
     if (!ctx.account) return ctx.answerCallbackQuery();
     ctx.session = { step: 'dep_amount', platformId: ctx.match![1]!, methodId: ctx.match![2]! };
     await ctx.answerCallbackQuery();
-    await ctx.reply('How much would you like to add? Send the number, e.g. `50`.', { parse_mode: 'Markdown' });
+    await ctx.reply('How much would you like to add? *Reply* with the number, e.g. `50`.', { parse_mode: 'Markdown', reply_markup: { force_reply: true } });
   });
 
   bot.command('withdraw', async (ctx) => {
@@ -204,7 +204,7 @@ export function buildBot(): Bot<Ctx> {
   bot.callbackQuery(/^wm:(.+):(.+)$/, async (ctx) => {
     ctx.session = { step: 'wd_amount', platformId: ctx.match![1]!, methodId: ctx.match![2]! };
     await ctx.answerCallbackQuery();
-    await ctx.reply('How much would you like to cash out? Send the number, e.g. `50`.', { parse_mode: 'Markdown' });
+    await ctx.reply('How much would you like to cash out? *Reply* with the number, e.g. `50`.', { parse_mode: 'Markdown', reply_markup: { force_reply: true } });
   });
 
   bot.command('canceldeposit', async (ctx) => {
@@ -338,10 +338,17 @@ export function buildBot(): Bot<Ctx> {
     await ctx.reply(`*Your game accounts:*\n${lines.join('\n')}\n\nTap to add or change one.`, { parse_mode: 'Markdown', reply_markup: kb });
   });
   bot.callbackQuery(/^ep:(.+)$/, async (ctx) => {
-    if (!ctx.account) return ctx.answerCallbackQuery();
+    // Resolve the club defensively — a fresh serverless invocation may not have run
+    // the account middleware for this callback yet.
+    const account = ctx.account ?? (ctx.chat ? await accountForChat('telegram', String(ctx.chat.id)) : null);
+    if (!account) return ctx.answerCallbackQuery({ text: 'This chat isn’t connected yet.' });
+    ctx.account = account;
     ctx.session = { step: 'ep_uid', platformId: ctx.match![1]! };
     await ctx.answerCallbackQuery();
-    await ctx.reply('What’s your username / ID on that platform? Send it here.');
+    // force_reply so the username reaches the bot even with Group Privacy on.
+    await ctx.reply('What’s your username / ID on that platform? *Reply to this message* with it.', {
+      parse_mode: 'Markdown', reply_markup: { force_reply: true },
+    });
   });
 
   // Assign a club to a linked platform.
@@ -399,14 +406,14 @@ export function buildBot(): Bot<Ctx> {
        where player_id = ${p.id} and status in ('queued','partially_filled','paused') order by created_at desc limit 1`);
     if (!w) { ctx.session = { step: 'idle' }; return ctx.reply('You have no cash-out in the queue to add to. Start one with /withdraw.'); }
     ctx.session = { step: 'atw_amount', withdrawId: w.id };
-    await ctx.reply(`Your current cash-out is *${money(w.amount)}*${w.payout_handle ? ` → \`${w.payout_handle}\`` : ''}.\nHow much would you like to *add*? Send the number, e.g. \`25\`.`, { parse_mode: 'Markdown' });
+    await ctx.reply(`Your current cash-out is *${money(w.amount)}*${w.payout_handle ? ` → \`${w.payout_handle}\`` : ''}.\nHow much would you like to *add*? *Reply* with the number, e.g. \`25\`.`, { parse_mode: 'Markdown', reply_markup: { force_reply: true } });
   });
 
   // Message the team — relays the next message the player sends to the admin chat.
   bot.command('support', async (ctx) => {
     const account = await needClub(ctx); if (!account) return;
     ctx.session = { step: 'support_msg' };
-    await ctx.reply('What do you need help with? Send your message and we’ll pass it straight to the team.');
+    await ctx.reply('What do you need help with? *Reply* with your message and we’ll pass it straight to the team.', { parse_mode: 'Markdown', reply_markup: { force_reply: true } });
   });
 
   bot.on('message:text', async (ctx, next) => {
@@ -443,7 +450,7 @@ export function buildBot(): Bot<Ctx> {
       const amount = parseAmount(ctx.message.text);
       if (amount == null) return ctx.reply('That doesn’t look like an amount. Try `50`.', { parse_mode: 'Markdown' });
       ctx.session = { ...s, step: 'wd_handle', amount };
-      return ctx.reply('Where should we send it? Send your payout handle (e.g. your Venmo / Zelle / wallet).');
+      return ctx.reply('Where should we send it? *Reply* with your payout handle (e.g. your Venmo / Zelle / wallet).', { parse_mode: 'Markdown', reply_markup: { force_reply: true } });
     }
     if (s.step === 'support_msg') {
       const p = await player(ctx, account);

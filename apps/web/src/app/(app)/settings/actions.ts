@@ -25,3 +25,17 @@ export async function updateConfig(form: FormData) {
      where account_id = ${ctx.accountId}`);
   revalidatePath('/settings');
 }
+
+/** Which platforms this club offers (ClubGG / Sportsbook / both). A platform is
+ *  enabled only if its checkbox came through; the bot shows just the enabled ones. */
+export async function updatePlatforms(form: FormData) {
+  const ctx = await getCtx();
+  if (!ctx) return;
+  await withAccount(ctx.accountId, async (sql) => {
+    const platforms = await sql<{ id: string }[]>`select id from platforms`;
+    for (const p of platforms) {
+      await sql`update platforms set enabled = ${form.get(`pf_${p.id}`) === 'on'} where id = ${p.id}`;
+    }
+  });
+  revalidatePath('/settings');
+}
