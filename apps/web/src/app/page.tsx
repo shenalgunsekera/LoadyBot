@@ -22,14 +22,14 @@ export default function Landing() {
   return (
     <>
       {/* ── Nav ─────────────────────────────────────────────────────────────── */}
-      <header style={{ position: 'sticky', top: 0, zIndex: 20, background: 'rgba(244,247,251,.72)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)' }}>
+      <header className="nav-dark" style={{ position: 'sticky', top: 0, zIndex: 20 }}>
         <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 70 }}>
-          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20 }}><Logo /> Loady</Link>
+          <Link href="/" className="brand" style={{ display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20 }}><Logo /> Loady</Link>
           <nav style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-            <a href="#how" className="dim" style={{ fontWeight: 600, fontSize: 14.5 }}>How it works</a>
-            <a href="#features" className="dim" style={{ fontWeight: 600, fontSize: 14.5 }}>Features</a>
-            <a href="#pricing" className="dim" style={{ fontWeight: 600, fontSize: 14.5 }}>Pricing</a>
-            <Link className="btn btn-ghost btn-sm" href="/login">Log in</Link>
+            <a href="#how" style={{ fontWeight: 600, fontSize: 14.5 }}>How it works</a>
+            <a href="#features" style={{ fontWeight: 600, fontSize: 14.5 }}>Features</a>
+            <a href="#pricing" style={{ fontWeight: 600, fontSize: 14.5 }}>Pricing</a>
+            <Link className="btn btn-sm" href="/login" style={{ background: 'transparent', color: '#eef3fb', border: '1px solid var(--night-line)' }}>Log in</Link>
             <Link className="btn btn-primary btn-sm btn-shine" href="/signup">Get started</Link>
           </nav>
         </div>
@@ -38,68 +38,64 @@ export default function Landing() {
       {/* ── Hero ────────────────────────────────────────────────────────────── */}
       <section className="hero">
         <div className="hero-grid" />
-        <div className="hero-glow" style={{ width: 520, height: 520, background: 'radial-gradient(circle, rgba(15,182,166,.45), transparent 60%)', top: -140, right: -80 }} />
-        <div className="hero-glow" style={{ width: 380, height: 380, background: 'radial-gradient(circle, rgba(47,179,230,.28), transparent 60%)', top: 120, left: -120, animationDelay: '1.5s' }} />
+        <div className="hero-glow" style={{ width: 520, height: 520, background: 'radial-gradient(circle, rgba(15,182,166,.40), transparent 60%)', top: -140, right: -80 }} />
+        <div className="hero-glow" style={{ width: 380, height: 380, background: 'radial-gradient(circle, rgba(232,179,74,.22), transparent 60%)', top: 140, left: -120, animationDelay: '1.5s' }} />
 
-        <div className="container hero-cols" style={{ position: 'relative', zIndex: 1, padding: '68px 24px 40px' }}>
+        <div className="container hero-cols" style={{ position: 'relative', zIndex: 1, padding: '74px 24px 60px' }}>
           {/* Left */}
           <div>
-            <span className="pill" style={{ animation: 'fadeUp .6s both' }}>◆ Payments for clubs, on autopilot</span>
-            <h1 style={{ marginTop: 20, fontSize: 'clamp(2.4rem, 5vw, 4rem)', animation: 'fadeUp .6s .05s both' }}>
-              One bot to run your club’s <span className="grad-text">deposits&nbsp;&amp;&nbsp;cash-outs</span>.
+            <span className="pill on-dark" style={{ animation: 'fadeUp .6s both' }}>◆ Payments for clubs, on autopilot</span>
+            <h1 style={{ marginTop: 20, fontSize: 'clamp(2.5rem, 5.2vw, 4.1rem)', lineHeight: 1.04, animation: 'fadeUp .6s .05s both' }}>
+              Run your club’s <span className="grad-text">deposits&nbsp;&amp;&nbsp;cash-outs</span> on one bot.
             </h1>
-            <p className="dim" style={{ fontSize: 19, marginTop: 20, maxWidth: 520, animation: 'fadeUp .6s .12s both' }}>
-              Loady matches deposits to cash-outs, holds risky payments, files every receipt and runs the queue — on
-              Telegram &amp; Discord. Every club in its own sealed space. No servers, no spreadsheets.
+            <p className="dim" style={{ fontSize: 19, marginTop: 22, maxWidth: 520, animation: 'fadeUp .6s .12s both' }}>
+              Loady matches deposits straight to waiting cash-outs, holds risky payments, files every receipt and runs the
+              queue — on Telegram &amp; Discord. Every club sealed in its own space. No servers, no spreadsheets.
             </p>
             <div style={{ display: 'flex', gap: 12, marginTop: 30, flexWrap: 'wrap', animation: 'fadeUp .6s .18s both' }}>
               <Link className="btn btn-primary btn-shine" href="/signup">Start your club →</Link>
-              <a className="btn btn-ghost" href="#how">See how it works</a>
+              <a className="btn" href="#how" style={{ background: 'transparent', color: '#eef3fb', border: '1px solid var(--night-line)' }}>See how it works</a>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 24, animation: 'fadeUp .6s .24s both' }}>
-              <div style={{ display: 'flex' }}>
-                {['#0fb6a6', '#2fb3e6', '#ff7a59', '#12a150'].map((c, i) => (
-                  <span key={i} style={{ width: 30, height: 30, borderRadius: '50%', background: c, border: '2px solid var(--bg)', marginLeft: i ? -8 : 0 }} />
-                ))}
-              </div>
-              <span className="dim" style={{ fontSize: 13.5 }}>Built on the engine we run in production every day.</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginTop: 30, animation: 'fadeUp .6s .24s both' }}>
+              {[['∞', 'clubs, isolated'], ['2', 'chat platforms'], ['0', 'servers to run']].map(([n, l]) => (
+                <div key={l}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 26, color: '#fff' }}>{n}</div>
+                  <div className="dim" style={{ fontSize: 12.5 }}>{l}</div>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Right — animated phone mockup */}
-          <div style={{ position: 'relative', display: 'grid', placeItems: 'center', minHeight: 480 }}>
-            <div className="chip-float" style={{ top: 30, left: 0, animation: 'floatY 5s ease-in-out infinite' }}>
-              <span className="chip-dot" style={{ background: '#3d95ce' }} /> Zelle
-            </div>
-            <div className="chip-float" style={{ top: 90, right: -6, animation: 'floatY2 6s ease-in-out infinite' }}>
-              <span className="chip-dot" style={{ background: '#f7931a' }} /> Bitcoin
-            </div>
-            <div className="chip-float" style={{ bottom: 60, left: -10, animation: 'floatY2 5.5s ease-in-out infinite .5s' }}>
-              <span className="chip-dot" style={{ background: '#008cff' }} /> Venmo
-            </div>
-            <div className="chip-float" style={{ bottom: 120, right: -12, animation: 'floatY 6.5s ease-in-out infinite .8s', color: 'var(--accent-strong)' }}>
-              ✓ Matched · $50
-            </div>
-
-            <div className="phone">
-              <div className="phone-screen">
-                <div className="phone-top">
-                  <div style={{ width: 30, height: 30, borderRadius: 9, background: 'var(--accent)', display: 'grid', placeItems: 'center' }}>
-                    <svg width="16" height="16" viewBox="0 0 26 26"><path d="M8 7v9.5A2.5 2.5 0 0 0 10.5 19H18" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" fill="none" /></svg>
-                  </div>
-                  <div><div style={{ fontWeight: 700, fontSize: 13.5 }}>Loady</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>club bot · online</div></div>
-                </div>
-                <div className="chat-b me"   style={{ animationDelay: '.2s' }}>/deposit 50</div>
-                <div className="chat-b them" style={{ animationDelay: '.6s' }}>💸 Send <b>$50</b> to <b>David-Haimoff</b> <span style={{ color: 'var(--muted)' }}>(tap to copy)</span></div>
-                <div className="chat-b me"   style={{ animationDelay: '1s', padding: 8 }}>
-                  <div style={{ width: 150, height: 84, borderRadius: 10, background: 'linear-gradient(135deg,#dff5ff,#eafaf7)', display: 'grid', placeItems: 'center', color: 'var(--accent-strong)', fontWeight: 700, fontSize: 12 }}>🧾 receipt.png</div>
-                </div>
-                <div className="chat-typing" style={{ animation: 'bubbleIn .5s 1.4s both' }}><i /><i /><i /></div>
-                <div className="chat-b them" style={{ animationDelay: '2s', background: 'var(--ok-soft)', color: 'var(--ok)', fontWeight: 600 }}>✅ Paid — matched to a waiting cash-out. Balance added.</div>
+          {/* Right — live matching console */}
+          <div style={{ position: 'relative', display: 'grid', placeItems: 'center', minHeight: 440 }}>
+            <div className="console">
+              <div className="console-top">
+                <span className="console-title">
+                  <svg width="18" height="18" viewBox="0 0 26 26" fill="none"><rect width="26" height="26" rx="8" fill="var(--accent)" /><path d="M8 7v9.5A2.5 2.5 0 0 0 10.5 19H18" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  Live queue
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#9fb0c6' }}><span className="live-dot" /> matching</span>
+              </div>
+              <div className="led-row" style={{ animationDelay: '.15s' }}>
+                <span className="led-ic in">↓</span>
+                <div><div className="led-name">Deposit · Marcus</div><div className="led-sub">Venmo · just now</div></div>
+                <span className="led-amt pos">+$300</span>
+              </div>
+              <div className="led-row" style={{ animationDelay: '.5s' }}>
+                <span className="led-ic out">↑</span>
+                <div><div className="led-name">Cash-out · Priya</div><div className="led-sub">waiting 4m · ClubGG</div></div>
+                <span className="led-amt neg">−$300</span>
+              </div>
+              <div className="console-match">✓ Matched — paid directly, float untouched</div>
+              <div className="led-row" style={{ animationDelay: '1.9s', marginTop: 8, marginBottom: 0 }}>
+                <span className="led-ic in">🧾</span>
+                <div><div className="led-name">Receipt filed</div><div className="led-sub">auto-attached to both sides</div></div>
+                <span className="led-amt" style={{ color: '#9fb0c6' }}>#4821</span>
               </div>
             </div>
           </div>
         </div>
+        <div className="hero-hem" />
       </section>
 
       {/* ── Methods marquee ─────────────────────────────────────────────────── */}
