@@ -32,27 +32,20 @@ export interface ClubTotals {
 }
 
 /**
- * The same money split by CLUB. Loady doesn't snapshot a club on each request, so
- * a deposit / cash-out is attributed to the player's current club for that platform
- * (player_platforms.club_id). Players with no club set are left out, so a club's
- * rows may sum to a touch under its platform total. RLS-scoped to the account.
+ * The same money split by CLUB, from the club snapshotted on each request at
+ * creation (migration 0018) — so it's historically exact. Rows with no club are
+ * left out, so a club's rows can sum a touch under its platform total. RLS-scoped.
  */
 export async function clubTotals(accountId: string): Promise<ClubTotals[]> {
   return withAccount(accountId, (sql) => sql<ClubTotals[]>`
     with dep as (
-      select platform_id, club_id, sum(amount)::bigint as amt from (
-        select d.platform_id, d.amount,
-               (select pp.club_id from player_platforms pp
-                 where pp.player_id = d.player_id and pp.platform_id = d.platform_id limit 1) as club_id
-          from deposit_requests d where d.status = 'settled'
-      ) x where club_id is not null group by platform_id, club_id
+      select platform_id, club_id, sum(amount)::bigint as amt
+        from deposit_requests where status = 'settled' and club_id is not null
+       group by platform_id, club_id
     ), wd as (
-      select platform_id, club_id, sum(amt)::bigint as amt from (
-        select w.platform_id, (w.amount - w.amount_remaining) as amt,
-               (select pp.club_id from player_platforms pp
-                 where pp.player_id = w.player_id and pp.platform_id = w.platform_id limit 1) as club_id
-          from withdraw_requests w where w.status <> 'cancelled'
-      ) x where club_id is not null group by platform_id, club_id
+      select platform_id, club_id, sum(amount - amount_remaining)::bigint as amt
+        from withdraw_requests where status <> 'cancelled' and club_id is not null
+       group by platform_id, club_id
     )
     select coalesce(dep.platform_id, wd.platform_id) as "platformId",
            coalesce(dep.club_id, wd.club_id) as "clubId", c.name,
