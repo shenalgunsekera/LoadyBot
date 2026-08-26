@@ -7,6 +7,7 @@ const NAV: { href: string; label: string; icon: string }[] = [
   { href: '/dashboard', label: 'Overview', icon: 'M3 12l9-9 9 9M5 10v10h14V10' },
   { href: '/deposits', label: 'Deposits', icon: 'M12 3v12M7 10l5 5 5-5M4 21h16' },
   { href: '/withdrawals', label: 'Withdrawals', icon: 'M12 21V9M7 14l5-5 5 5M4 3h16' },
+  { href: '/players', label: 'Players', icon: 'M17 20v-2a4 4 0 0 0-8 0v2M13 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0M21 20v-2a4 4 0 0 0-3-3.8' },
   { href: '/connect', label: 'Connect chats', icon: 'M8 12h8M12 8v8M4 4h16v16H4z' },
   { href: '/methods', label: 'Payment methods', icon: 'M3 7h18v10H3zM3 11h18' },
   { href: '/team', label: 'Team', icon: 'M17 20v-2a4 4 0 0 0-8 0v2M13 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0M21 20v-2a4 4 0 0 0-3-3.8' },
