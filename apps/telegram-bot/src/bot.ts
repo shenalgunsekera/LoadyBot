@@ -7,7 +7,7 @@ import {
 import { money, parseAmount, resolvePlayer, platformsFor, methodsFor, adminChatFor, type Player } from './ui';
 import { pgSessions } from './session-store';
 
-interface SessionData { step: string; platformId?: string; methodId?: string; amount?: number; fillId?: string; withdrawId?: string }
+interface SessionData { step: string; platformId?: string; methodId?: string; amount?: number; fillId?: string; withdrawId?: string; ob?: { idx: number } }
 export type Ctx = Context & SessionFlavor<SessionData> & { account?: Account; player?: Player };
 
 const errText = (e: unknown) => ((e as { message?: string })?.message ?? String(e)).replace(/^error:\s*/i, '');
@@ -134,21 +134,75 @@ export function buildBot(): Bot<Ctx> {
   };
   const player = (ctx: Ctx, account: Account) => resolvePlayer(account.id, String(ctx.from!.id), ctx.from?.username ?? null, String(ctx.chat!.id));
 
-  // Poker-style onboarding: greet, show the menu, and kick off account-linking.
-  // Fired when the bot lands in a new chat and on /start in a connected chat.
+  // ── Guided onboarding, Poker-style ────────────────────────────────────────
+  // A single sequence collects everything before the first move: name → for each
+  // platform the club offers, "do you play here?" → username → club → done. Runs
+  // in the same chat; each answer is a force_reply so Group Privacy can't eat it.
+  const FR = { reply_markup: { force_reply: true as const }, parse_mode: 'Markdown' as const };
+
   const welcome = async (ctx: Ctx, account: Account) => {
-    const platforms = await platformsFor(account.id);
-    const kb = new InlineKeyboard();
-    for (const pl of platforms) kb.text(`Link ${pl.name}`, `ep:${pl.id}`).row();
+    ctx.session = { step: 'ob_name', ob: { idx: 0 } };
     await ctx.reply(
-      `👋 *Welcome to ${account.name}!*\n\nThis is your private chat with the club. Here's how it works:\n\n` +
-      `💸 /deposit — add funds\n🏦 /withdraw — cash out\n📋 /pending — cash-outs in progress\n🧾 /deposithistory · /withdrawalhistory\n❓ /guide — what every command does\n\n` +
-      (platforms.length
-        ? `First, link your game account so we can match your deposits & cash-outs — tap below:`
-        : `Ask your club admin to add a platform, then you're ready to /deposit.`),
-      { parse_mode: 'Markdown', reply_markup: platforms.length ? kb : undefined },
+      `👋 *Welcome to ${account.name}!*\n\nLet's get you set up — takes a minute, then you can /deposit and /withdraw.\n\n` +
+      `First — what *name* do you go by? *Reply* to this message with it.`,
+      FR,
     );
   };
+
+  const obFinish = async (ctx: Ctx, _account: Account) => {
+    ctx.session = { step: 'idle' };
+    await ctx.reply(
+      `✅ *You're all set!*\n\n💸 /deposit — add funds\n🏦 /withdraw — cash out\n📋 /pending · 🧾 /deposithistory · /withdrawalhistory\n❓ /guide anytime.`,
+      { parse_mode: 'Markdown' },
+    );
+  };
+
+  // Ask about platform #idx (Yes → link it, Skip → next). Finishes when past the last.
+  const askPlatform = async (ctx: Ctx, account: Account, idx: number) => {
+    const platforms = await platformsFor(account.id);
+    if (idx >= platforms.length) return obFinish(ctx, account);
+    const pf = platforms[idx]!;
+    ctx.session = { step: 'ob_ask', platformId: pf.id, ob: { idx } };
+    const kb = new InlineKeyboard().text('✅ Yes', `oby:${idx}`).text('Skip', `obn:${idx}`);
+    await ctx.reply(`Do you play on *${pf.name}*?`, { parse_mode: 'Markdown', reply_markup: kb });
+  };
+
+  const showObClubs = async (ctx: Ctx, clubs: { id: string; name: string }[]) => {
+    const kb = new InlineKeyboard();
+    for (const c of clubs) kb.text(c.name, `obc:${c.id}`).row();
+    await ctx.reply('Which club do you play in?', { reply_markup: kb });
+  };
+
+  const acctFromCtx = async (ctx: Ctx): Promise<Account | null> =>
+    ctx.account ?? (ctx.chat ? await accountForChat('telegram', String(ctx.chat.id)) : null);
+
+  bot.callbackQuery(/^oby:(\d+)$/, async (ctx) => {
+    const account = await acctFromCtx(ctx); if (!account) return ctx.answerCallbackQuery();
+    ctx.account = account;
+    const idx = Number(ctx.match![1]);
+    const platforms = await platformsFor(account.id);
+    const pf = platforms[idx];
+    await ctx.answerCallbackQuery();
+    if (!pf) return obFinish(ctx, account);
+    ctx.session = { step: 'ob_uid', platformId: pf.id, ob: { idx } };
+    await ctx.reply(`Your username / ID on *${pf.name}*? *Reply* with it.`, FR);
+  });
+  bot.callbackQuery(/^obn:(\d+)$/, async (ctx) => {
+    const account = await acctFromCtx(ctx); if (!account) return ctx.answerCallbackQuery();
+    ctx.account = account;
+    await ctx.answerCallbackQuery();
+    await askPlatform(ctx, account, Number(ctx.match![1]) + 1);
+  });
+  bot.callbackQuery(/^obc:(.+)$/, async (ctx) => {
+    const account = await acctFromCtx(ctx); if (!account) return ctx.answerCallbackQuery();
+    ctx.account = account;
+    const p = await player(ctx, account);
+    const idx = ctx.session.ob?.idx ?? 0;
+    const platformId = ctx.session.platformId!;
+    await withAccount(account.id, (sql) => sql`select player_set_club(${p.id}, ${platformId}, ${ctx.match![1]!})`);
+    await ctx.answerCallbackQuery({ text: 'Saved ✓' });
+    await askPlatform(ctx, account, idx + 1);
+  });
 
   bot.command('deposit', async (ctx) => {
     const account = await needClub(ctx); if (!account) return;
@@ -420,6 +474,23 @@ export function buildBot(): Bot<Ctx> {
     if (ctx.message.text.startsWith('/')) return next();
     const account = ctx.account; if (!account) return next();
     const s = ctx.session;
+
+    if (s.step === 'ob_name') {
+      const name = ctx.message.text.trim().slice(0, 60);
+      const p = await player(ctx, account);
+      await withAccount(account.id, (sql) => sql`update players set display_name = ${name} where id = ${p.id}`);
+      await ctx.reply(`Nice to meet you, *${name}*! 👋`, { parse_mode: 'Markdown' });
+      return askPlatform(ctx, account, 0);
+    }
+    if (s.step === 'ob_uid') {
+      const uid = ctx.message.text.trim();
+      const p = await player(ctx, account);
+      await withAccount(account.id, (sql) => sql`select player_set_platform(${p.id}, ${s.platformId!}, ${uid})`);
+      const clubs = await withAccount(account.id, (sql) => sql<{ id: string; name: string }[]>`select id, name from clubs order by name`);
+      const idx = s.ob?.idx ?? 0;
+      if (clubs.length) { ctx.session = { step: 'ob_club', platformId: s.platformId, ob: { idx } }; return showObClubs(ctx, clubs); }
+      return askPlatform(ctx, account, idx + 1);
+    }
 
     if (s.step === 'dep_amount') {
       const amount = parseAmount(ctx.message.text);
