@@ -19,14 +19,6 @@
   --accent-soft: #e4faf6;
   --accent-ink:  #063f39;
   --coral:       #ff7a59;
-  /* Poker-gold — the warm secondary for the landing (chips / felt world) */
-  --gold:        #e8b34a;
-  --gold-soft:   #f7ecd0;
-  --gold-ink:    #6b4e12;
-  /* Dark hero grounds */
-  --night:       #0b1524;
-  --night-2:     #0f1e33;
-  --night-line:  rgba(255,255,255,.09);
 
   /* Semantic */
   --ok:   #12a150;  --ok-soft:   #e6f6ec;
@@ -156,61 +148,15 @@ tr:last-child td { border-bottom: none; }
   animation: gradientMove 6s linear infinite;
 }
 
-/* ── Dark, premium hero ──────────────────────────────────────────────────── */
-.hero {
-  position: relative; overflow: clip; color: #eef3fb;
-  background:
-    radial-gradient(1100px 520px at 78% -8%, rgba(15,182,166,.20), transparent 60%),
-    radial-gradient(760px 480px at 8% 12%, rgba(232,179,74,.12), transparent 62%),
-    linear-gradient(180deg, var(--night) 0%, var(--night-2) 70%, var(--night) 100%);
-}
-.hero h1 { color: #fff; }
-.hero .dim { color: #a9b6c9; }
+/* Ambient hero glow + faint grid */
+.hero { position: relative; overflow: clip; }
 .hero-glow { position: absolute; border-radius: 50%; filter: blur(70px); pointer-events: none; z-index: 0; animation: glowPulse 7s ease-in-out infinite; }
 .hero-grid {
   position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: .5;
-  background-image: radial-gradient(rgba(255,255,255,.10) 1px, transparent 1px);
-  background-size: 30px 30px;
-  mask-image: radial-gradient(ellipse 85% 70% at 60% 25%, #000 35%, transparent 78%);
+  background-image: radial-gradient(var(--border-strong) 1px, transparent 1px);
+  background-size: 26px 26px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 30%, transparent 75%);
 }
-/* felt seam that separates the dark hero from the light page below */
-.hero-hem { height: 1px; background: linear-gradient(90deg, transparent, var(--accent), var(--gold), transparent); opacity: .6; }
-
-/* Dark pill + gold pill variants for the hero */
-.pill.on-dark { background: rgba(15,182,166,.16); color: #7ff0e2; border: 1px solid rgba(15,182,166,.35); }
-.pill.gold { background: var(--gold-soft); color: var(--gold-ink); }
-
-/* Live matching console — the hero's product visual */
-.console {
-  position: relative; z-index: 1; width: 100%; max-width: 400px;
-  background: linear-gradient(180deg, #12233b, #0e1c30);
-  border: 1px solid var(--night-line); border-radius: 20px; padding: 18px;
-  box-shadow: 0 30px 70px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.04);
-}
-.console-top { display: flex; align-items: center; justify-content: space-between; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--night-line); }
-.console-title { display: flex; align-items: center; gap: 9px; font-family: var(--font-display); font-weight: 700; font-size: 14.5px; color: #eef3fb; }
-.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #34e2a8; box-shadow: 0 0 0 0 rgba(52,226,168,.6); animation: livePulse 2s infinite; }
-.led-row {
-  display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 11px;
-  padding: 11px 12px; border-radius: 12px; background: rgba(255,255,255,.03);
-  border: 1px solid rgba(255,255,255,.05); margin-bottom: 8px; opacity: 0; animation: rowIn .5s both;
-}
-.led-ic { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-size: 13px; }
-.led-ic.in  { background: rgba(232,179,74,.16); color: var(--gold); }
-.led-ic.out { background: rgba(47,179,230,.16); color: #6cc8f2; }
-.led-name { font-size: 13px; font-weight: 600; color: #e7edf6; }
-.led-sub  { font-size: 11.5px; color: #8595ab; }
-.led-amt  { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 14px; }
-.led-amt.pos { color: #34e2a8; } .led-amt.neg { color: #f0b6a0; }
-.console-match {
-  margin-top: 4px; display: flex; align-items: center; gap: 8px; justify-content: center;
-  padding: 10px; border-radius: 12px; font-weight: 700; font-size: 13px;
-  background: rgba(52,226,168,.12); color: #34e2a8; border: 1px solid rgba(52,226,168,.28);
-  opacity: 0; animation: rowIn .5s 1.1s both, matchGlow 3s 1.6s ease-in-out infinite;
-}
-@keyframes livePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(52,226,168,.55); } 50% { box-shadow: 0 0 0 6px rgba(52,226,168,0); } }
-@keyframes rowIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-@keyframes matchGlow { 0%,100% { box-shadow: 0 0 0 0 rgba(52,226,168,0); } 50% { box-shadow: 0 0 22px rgba(52,226,168,.22); } }
 
 /* Buttons get a sweeping shine */
 .btn-shine { position: relative; overflow: hidden; }
