@@ -41,7 +41,9 @@ export function Sidebar({ accountName }: { accountName: string }) {
           <div style={{ width: 34, height: 34, borderRadius: 9, background: 'var(--ink)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, fontFamily: 'var(--font-display)' }}>{accountName.slice(0, 1).toUpperCase()}</div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{accountName}</div>
-            <Link href="/logout" style={{ fontSize: 12, color: 'var(--muted)' }}>Sign out</Link>
+            <form action="/logout" method="post" style={{ margin: 0 }}>
+              <button type="submit" style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit' }}>Sign out</button>
+            </form>
           </div>
         </div>
       </div>
