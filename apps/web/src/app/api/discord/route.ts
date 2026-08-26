@@ -1,5 +1,5 @@
 import nacl from 'tweetnacl';
-import { accountForChat, redeemConnectCode, redeemLinkCode, isAccountAdmin, withAccount, isServiceable, botEnabled, storageConfigured, uploadReceipt, platformTotals } from '@loady/core';
+import { accountForChat, redeemConnectCode, redeemLinkCode, isAccountAdmin, accountForAdminUser, autoBindChat, withAccount, isServiceable, botEnabled, storageConfigured, uploadReceipt, platformTotals } from '@loady/core';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -72,7 +72,16 @@ export async function POST(req: Request): Promise<Response> {
         const r = await redeemLinkCode(code, 'discord', userId);
         return reply(r.ok ? `✅ Linked! You can verify payments for **${r.accountName}**.` : `❌ ${r.error}`, { ephemeral: true });
       }
-      const account = await acctFor(guildId);
+      let account = await acctFor(guildId);
+      // Auto-connect: a linked admin (one admin = one club) running a command in an
+      // unconnected server binds it to their club automatically — no /connect code.
+      if (!account && guildId) {
+        const adminAcc = await accountForAdminUser('discord', userId);
+        if (adminAcc && botEnabled(adminAcc, 'discord')) {
+          const res = await autoBindChat(adminAcc.id, 'discord', guildId, null);
+          if (res !== 'taken') account = adminAcc;
+        }
+      }
       if (!account) return reply('This server isn’t connected to a club yet. An admin can run `/connect`.', { ephemeral: true });
       if (!botEnabled(account, 'discord')) {
         return reply(isServiceable(account.status)
