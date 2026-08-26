@@ -247,6 +247,47 @@ export function buildBot(): Bot<Ctx> {
       : 'Couldn’t set this group. Make sure I’m connected to your club here first.');
   });
 
+  // The player a chat belongs to (their tg_chat_id points here). One player per
+  // group, so this is the "ticket target" for admin cash-out commands.
+  const chatPlayer = (account: Account, ctx: Ctx) =>
+    withAccount(account.id, async (sql) => {
+      const [p] = await sql<{ id: string; display_name: string | null }[]>`
+        select id, display_name from players where tg_chat_id = ${String(ctx.chat!.id)} order by created_at limit 1`;
+      return p ?? null;
+    });
+  const adminGate = async (account: Account, ctx: Ctx) =>
+    !!ctx.from && (await isAccountAdmin(account.id, 'telegram', String(ctx.from.id)));
+
+  // Admin: pause / resume this player's cash-out (run in the player's group).
+  bot.command('pausewithdraw', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    if (!(await adminGate(account, ctx))) return ctx.reply('Admins only.');
+    const p = await chatPlayer(account, ctx);
+    if (!p) return ctx.reply('No player is linked to this chat yet.');
+    try {
+      const done = await withAccount(account.id, async (sql) => {
+        const [w] = await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled') order by created_at desc limit 1`;
+        if (!w) return false;
+        await sql`select withdraw_pause(${w.id})`; return true;
+      });
+      await ctx.reply(done ? `⏸ Paused ${p.display_name ?? 'the player'}’s cash-out — it’s out of the queue until you /resumewithdraw.` : 'That player has no cash-out in the queue.');
+    } catch (e) { await ctx.reply(`❌ ${errText(e)}`); }
+  });
+  bot.command('resumewithdraw', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    if (!(await adminGate(account, ctx))) return ctx.reply('Admins only.');
+    const p = await chatPlayer(account, ctx);
+    if (!p) return ctx.reply('No player is linked to this chat yet.');
+    try {
+      const done = await withAccount(account.id, async (sql) => {
+        const [w] = await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${p.id} and status = 'paused' order by created_at desc limit 1`;
+        if (!w) return false;
+        await sql`select withdraw_resume(${w.id})`; return true;
+      });
+      await ctx.reply(done ? `▶️ Resumed ${p.display_name ?? 'the player'}’s cash-out — it’s back in the queue.` : 'That player has no paused cash-out.');
+    } catch (e) { await ctx.reply(`❌ ${errText(e)}`); }
+  });
+
   // Admin panel: money in / out per platform (ClubGG, Sportsbook, …).
   bot.command('totals', async (ctx) => {
     const account = await needClub(ctx); if (!account) return;

@@ -30,7 +30,7 @@ const GUIDE = [
   '`/deposithistory` · `/withdrawalhistory` — your activity',
   '`/support` — message the team',
 ].join('\n');
-const SOON = ['pausewithdraw', 'resumewithdraw'];
+const SOON: string[] = [];
 const methodList = (accountId: string, payout: boolean) =>
   withAccount(accountId, (sql) => payout
     ? sql<{ name: string }[]>`select name from payment_methods where enabled and payout_enabled order by sort_order, name`
@@ -182,6 +182,25 @@ export async function POST(req: Request): Promise<Response> {
       }
       if (name === 'support') {
         return modal('sup', 'Message the team', [textInput('msg', 'What do you need help with?')]);
+      }
+      if (name === 'pausewithdraw' || name === 'resumewithdraw') {
+        if (!(await isAccountAdmin(account.id, 'discord', userId))) return reply('Admins only.', { ephemeral: true });
+        const pausing = name === 'pausewithdraw';
+        const res = await withAccount(account.id, async (sql) => {
+          const [p] = await sql<{ id: string; display_name: string | null }[]>`select id, display_name from players where dc_channel_id = ${i.channel_id} order by created_at limit 1`;
+          if (!p) return { player: null as null, done: false };
+          const [w] = pausing
+            ? await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled') order by created_at desc limit 1`
+            : await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${p.id} and status = 'paused' order by created_at desc limit 1`;
+          if (!w) return { player: p, done: false };
+          if (pausing) await sql`select withdraw_pause(${w.id})`;
+          else await sql`select withdraw_resume(${w.id})`;
+          return { player: p, done: true };
+        });
+        if (!res.player) return reply('No player is linked to this channel yet.', { ephemeral: true });
+        const who = res.player.display_name ?? 'the player';
+        if (!res.done) return reply(pausing ? `${who} has no cash-out in the queue.` : `${who} has no paused cash-out.`, { ephemeral: true });
+        return reply(pausing ? `⏸ Paused ${who}’s cash-out — out of the queue until /resumewithdraw.` : `▶️ Resumed ${who}’s cash-out — back in the queue.`, { ephemeral: false });
       }
       if (SOON.includes(name)) return reply('That feature is coming soon.', { ephemeral: true });
 
