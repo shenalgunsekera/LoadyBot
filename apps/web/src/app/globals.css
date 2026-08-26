@@ -277,3 +277,19 @@ tr:last-child td { border-bottom: none; }
   .auth-split { grid-template-columns: 1fr; }
   .auth-brand { display: none !important; }
 }
+
+/* ── Cash-flow chart + range tabs (ported from the Poker panel) ───────────── */
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; padding: 4px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--border); width: fit-content; max-width: 100%; }
+.tab { border: none; background: transparent; color: var(--ink-dim); font-family: var(--font-body); font-weight: 600; font-size: 13px; padding: 7px 15px; border-radius: 8px; cursor: pointer; transition: background .12s, color .12s; white-space: nowrap; text-decoration: none; }
+.tab:hover { background: var(--surface); color: var(--ink); }
+.tab.active { background: var(--surface); color: var(--accent-strong); box-shadow: var(--shadow-sm); }
+
+.flow-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.flow-wrap { position: relative; cursor: crosshair; }
+.flow-guide { position: absolute; width: 0; border-left: 1px dashed var(--muted); transform: translateX(-0.5px); pointer-events: none; }
+.flow-dot { position: absolute; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--surface); transform: translate(-50%, -50%); pointer-events: none; box-shadow: 0 0 0 1px rgba(0,0,0,.06); }
+.flow-tip { position: absolute; top: 4px; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow); padding: 8px 10px; font-size: 12px; white-space: nowrap; pointer-events: none; z-index: 2; }
+.flow-tip-date { font-weight: 650; margin-bottom: 4px; }
+.flow-tip-row { display: flex; align-items: center; gap: 6px; color: var(--ink-dim); }
+.flow-tip-row strong { color: var(--ink); margin-left: auto; padding-left: 10px; }
+.dash-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; vertical-align: middle; margin-right: 3px; }

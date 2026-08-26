@@ -1,15 +1,30 @@
+import Link from 'next/link';
 import { withAccount, platformTotals, clubTotals } from '@loady/core';
 import { getCtx } from '@/lib/session';
 import { redirect } from 'next/navigation';
 import { ByPlatform, type PlatformRow } from '@/components/by-platform';
+import { FlowChart, FlowStats, type Bucket } from '@/components/flow-chart';
 
 export const dynamic = 'force-dynamic';
 
 const money = (c: number) => `$${(Number(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export default async function Overview() {
+export default async function Overview({ searchParams }: { searchParams: Promise<{ flow?: string }> }) {
   const ctx = await getCtx();
   if (!ctx) redirect('/login');
+
+  // ── Cash-flow range (24h / 7d / 30d), UTC buckets like the Poker panel ──
+  const { flow } = await searchParams;
+  const preset: '24h' | '7d' | '30d' = flow === '24h' ? '24h' : flow === '30d' ? '30d' : '7d';
+  const now = new Date();
+  const DAY = 86400000, HOUR = 3600000;
+  const today0 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const unit: 'hour' | 'day' = preset === '24h' ? 'hour' : 'day';
+  const step = unit === 'hour' ? '1 hour' : '1 day';
+  const end = now;
+  let start: Date, seriesEnd: Date;
+  if (preset === '24h') { const th = Math.floor(now.getTime() / HOUR) * HOUR; start = new Date(th - 23 * HOUR); seriesEnd = new Date(th); }
+  else { const days = preset === '30d' ? 29 : 6; start = new Date(today0 - days * DAY); seriesEnd = new Date(today0); }
 
   const data = await withAccount(ctx.accountId, async (sql) => {
     const [pos] = await sql<{ float: number; on_platform: number; escrow: number; fees: number }[]>`
@@ -27,8 +42,18 @@ export default async function Overview() {
       select q.id, q.amount_remaining, q.payout_handle, dp.display_name as name, q.queue_position as position
         from v_withdraw_queue q left join players dp on dp.id = q.player_id
        order by q.queue_position limit 20`;
-    return { pos: pos!, toVerify, queue };
+    const buckets = await sql<Bucket[]>`
+      with b as (select generate_series(${start}::timestamptz, ${seriesEnd}::timestamptz, ${step}::interval) as t),
+      fl as (select date_trunc(${unit}, released_at) as t,
+               coalesce(sum(amount) filter (where deposit_id is not null), 0) as received,
+               coalesce(sum(amount) filter (where withdraw_id is not null), 0) as paid
+               from fills where status = 'released' and released_at >= ${start} and released_at < ${end} group by 1)
+      select b.t, coalesce(fl.received, 0)::bigint as received, coalesce(fl.paid, 0)::bigint as paid
+        from b left join fl on fl.t = b.t order by b.t`;
+    return { pos: pos!, toVerify, queue, buckets };
   });
+  const flowReceived = data.buckets.reduce((s, b) => s + Number(b.received), 0);
+  const flowPaid = data.buckets.reduce((s, b) => s + Number(b.paid), 0);
   // Sequential (not Promise.all) so two RLS transactions never share a pooled
   // connection concurrently; defensive so a reporting query can't white-screen.
   let totals: Awaited<ReturnType<typeof platformTotals>> = [];
@@ -70,6 +95,31 @@ export default async function Overview() {
           </div>
         ))}
       </div>
+
+      {/* Cash flow */}
+      <section>
+        <div className="flow-head">
+          <div>
+            <h3>Cash flow</h3>
+            <p className="dim" style={{ marginTop: 4 }}>Money received (deposits) vs paid out (cash-outs).</p>
+          </div>
+          <div className="tabs" role="tablist">
+            {(['24h', '7d', '30d'] as const).map((k) => (
+              <Link key={k} href={`/dashboard?flow=${k}`} role="tab" aria-selected={preset === k} className={`tab ${preset === k ? 'active' : ''}`}>
+                {k === '24h' ? '24 hours' : k === '7d' ? '7 days' : '30 days'}
+              </Link>
+            ))}
+          </div>
+        </div>
+        <div className="grid cols-2" style={{ marginBottom: 16 }}>
+          <FlowStats received={flowReceived} paid={flowPaid} />
+        </div>
+        <div className="card">
+          {flowReceived === 0 && flowPaid === 0
+            ? <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>No money moved in this range.</div>
+            : <FlowChart buckets={data.buckets} unit={unit} />}
+        </div>
+      </section>
 
       <div>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
