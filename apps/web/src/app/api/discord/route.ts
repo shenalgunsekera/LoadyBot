@@ -30,7 +30,7 @@ const GUIDE = [
   '`/deposithistory` · `/withdrawalhistory` — your activity',
   '`/support` — message the team',
 ].join('\n');
-const SOON = ['support', 'pausewithdraw', 'resumewithdraw'];
+const SOON = ['pausewithdraw', 'resumewithdraw'];
 const methodList = (accountId: string, payout: boolean) =>
   withAccount(accountId, (sql) => payout
     ? sql<{ name: string }[]>`select name from payment_methods where enabled and payout_enabled order by sort_order, name`
@@ -167,6 +167,9 @@ export async function POST(req: Request): Promise<Response> {
         });
         return reply(`📊 **Totals by platform**\n\n${lines.join('\n\n')}\n\n————\n**All platforms** — in ${money(din)} · out ${money(dout)} · net ${money(din - dout)}`, { ephemeral: true });
       }
+      if (name === 'support') {
+        return modal('sup', 'Message the team', [textInput('msg', 'What do you need help with?')]);
+      }
       if (SOON.includes(name)) return reply('That feature is coming soon.', { ephemeral: true });
 
       if (name === 'canceldeposit') {
@@ -253,6 +256,12 @@ export async function POST(req: Request): Promise<Response> {
         if (!uid) return reply('Enter your username / ID.', { ephemeral: true });
         await withAccount(account.id, (sql) => sql`select player_set_platform(${player.id}, ${platformId!}, ${uid})`);
         return reply('✅ Saved. You can /deposit or /withdraw now.', { ephemeral: true });
+      }
+      if (k === 'sup') {
+        const msg = String(fields.msg ?? '').trim();
+        if (!msg) return reply('Tell us what you need help with.', { ephemeral: true });
+        await postChannel(i.channel_id, { content: `🆘 **Support request** from ${username}:\n\n${msg}` });
+        return reply('✅ Sent to the team — they’ll get back to you.', { ephemeral: true });
       }
 
       const amount = Math.round(parseFloat(String(fields.amount).replace(/[$,\s]/g, '')) * 100);

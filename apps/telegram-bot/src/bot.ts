@@ -303,10 +303,12 @@ export function buildBot(): Bot<Ctx> {
     await ctx.reply(`Your current cash-out is *${money(w.amount)}*${w.payout_handle ? ` → \`${w.payout_handle}\`` : ''}.\nHow much would you like to *add*? Send the number, e.g. \`25\`.`, { parse_mode: 'Markdown' });
   });
 
-  // Registered so the menu matches the poker bot; behaviour lands in later steps.
-  for (const c of ['support']) {
-    bot.command(c, async (ctx) => { await ctx.reply('That feature is coming soon.'); });
-  }
+  // Message the team — relays the next message the player sends to the admin chat.
+  bot.command('support', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    ctx.session = { step: 'support_msg' };
+    await ctx.reply('What do you need help with? Send your message and we’ll pass it straight to the team.');
+  });
 
   bot.on('message:text', async (ctx, next) => {
     if (ctx.message.text.startsWith('/')) return next();
@@ -343,6 +345,16 @@ export function buildBot(): Bot<Ctx> {
       if (amount == null) return ctx.reply('That doesn’t look like an amount. Try `50`.', { parse_mode: 'Markdown' });
       ctx.session = { ...s, step: 'wd_handle', amount };
       return ctx.reply('Where should we send it? Send your payout handle (e.g. your Venmo / Zelle / wallet).');
+    }
+    if (s.step === 'support_msg') {
+      const p = await player(ctx, account);
+      ctx.session = { step: 'idle' };
+      const adminChat = await adminChatFor(account.id);
+      if (!adminChat) return ctx.reply('Support isn’t set up for your club yet — please reach your admin directly.');
+      const who = p.display_name ?? ctx.from?.first_name ?? 'A player';
+      const tag = ctx.from?.username ? ` (@${ctx.from.username})` : '';
+      await bot.api.sendMessage(adminChat, `🆘 Support request from ${who}${tag}:\n\n${ctx.message.text}`).catch((e) => console.error('[support]', e));
+      return ctx.reply('✅ Sent to the team — they’ll get back to you here.');
     }
     if (s.step === 'atw_amount') {
       const amount = parseAmount(ctx.message.text);
