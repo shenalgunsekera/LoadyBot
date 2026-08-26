@@ -1,4 +1,4 @@
-import { withAccount } from '@loady/core';
+import { withAccount, platformTotals } from '@loady/core';
 import { getCtx } from '@/lib/session';
 import { redirect } from 'next/navigation';
 
@@ -28,6 +28,8 @@ export default async function Overview() {
        order by q.queue_position limit 20`;
     return { pos: pos!, toVerify, queue };
   });
+  const totals = await platformTotals(ctx.accountId);
+  const grand = totals.reduce((a, t) => ({ deposited: a.deposited + Number(t.deposited), withdrawn: a.withdrawn + Number(t.withdrawn) }), { deposited: 0, withdrawn: 0 });
 
   const held = -Number(data.pos.float);       // owner_float is negative while holding cash
   const owed = Number(data.pos.on_platform) + Number(data.pos.escrow);
@@ -54,6 +56,43 @@ export default async function Overview() {
             <div className="stat-note">{s.note}</div>
           </div>
         ))}
+      </div>
+
+      <div>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+          <h3>Deposits &amp; cash-outs by platform</h3>
+          <span className="stat-note">All-time · settled deposits and paid cash-outs</span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Platform</th><th className="num" style={{ textAlign: 'right' }}>Deposited in</th><th className="num" style={{ textAlign: 'right' }}>Cashed out</th><th className="num" style={{ textAlign: 'right' }}>Net</th></tr></thead>
+            <tbody>
+              {totals.length === 0 ? (
+                <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No platforms yet.</td></tr>
+              ) : totals.map((t) => {
+                const net = Number(t.deposited) - Number(t.withdrawn);
+                return (
+                  <tr key={t.id}>
+                    <td style={{ fontWeight: 600 }}>{t.name}</td>
+                    <td className="num mono" style={{ textAlign: 'right', color: 'var(--ok)' }}>{money(Number(t.deposited))}</td>
+                    <td className="num mono" style={{ textAlign: 'right', color: 'var(--ink-dim)' }}>{money(Number(t.withdrawn))}</td>
+                    <td className="num mono" style={{ textAlign: 'right', fontWeight: 600, color: net >= 0 ? 'var(--ok)' : 'var(--red)' }}>{money(net)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {totals.length > 0 && (
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--border-strong)' }}>
+                  <td style={{ fontWeight: 700 }}>All platforms</td>
+                  <td className="num mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--ok)' }}>{money(grand.deposited)}</td>
+                  <td className="num mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(grand.withdrawn)}</td>
+                  <td className="num mono" style={{ textAlign: 'right', fontWeight: 700, color: grand.deposited - grand.withdrawn >= 0 ? 'var(--ok)' : 'var(--red)' }}>{money(grand.deposited - grand.withdrawn)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
       </div>
 
       <div className="grid cols-2" style={{ alignItems: 'start' }}>

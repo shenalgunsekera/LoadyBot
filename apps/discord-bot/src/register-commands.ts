@@ -30,6 +30,7 @@ export const COMMANDS = [
     .addStringOption((o) => o.setName('code').setDescription('The connect code from your dashboard').setRequired(true)),
   plain('pausewithdraw', "(admin) Pause a player's cash-out"),
   plain('resumewithdraw', "(admin) Resume a player's cash-out"),
+  plain('totals', '(admin) Deposited & cashed-out totals per platform'),
 ].map((c) => c.toJSON());
 
 /** The one shared bot serves every club, so commands are GLOBAL. Set

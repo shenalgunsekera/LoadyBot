@@ -1,5 +1,5 @@
 import nacl from 'tweetnacl';
-import { accountForChat, redeemConnectCode, redeemLinkCode, isAccountAdmin, withAccount, isServiceable, storageConfigured, uploadReceipt } from '@loady/core';
+import { accountForChat, redeemConnectCode, redeemLinkCode, isAccountAdmin, withAccount, isServiceable, storageConfigured, uploadReceipt, platformTotals } from '@loady/core';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -154,6 +154,18 @@ export async function POST(req: Request): Promise<Response> {
           select amount, payout_handle from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled','paused') order by created_at desc limit 1`);
         if (!w) return reply('You have no cash-out in the queue to add to. Start one with /withdraw.', { ephemeral: true });
         return modal('atw', `Add to your ${money(w.amount)} cash-out`, [textInput('amount', 'How much to add (e.g. 25)')]);
+      }
+      if (name === 'totals') {
+        if (!(await isAccountAdmin(account.id, 'discord', userId))) return reply('Admins only.', { ephemeral: true });
+        const totals = await platformTotals(account.id);
+        if (totals.length === 0) return reply('No platforms set up yet.', { ephemeral: true });
+        let din = 0, dout = 0;
+        const lines = totals.map((t) => {
+          din += Number(t.deposited); dout += Number(t.withdrawn);
+          const net = Number(t.deposited) - Number(t.withdrawn);
+          return `**${t.name}**\n⬇︎ Deposited in: ${money(Number(t.deposited))} · ⬆︎ Cashed out: ${money(Number(t.withdrawn))} · ⚖︎ Net: ${money(net)}`;
+        });
+        return reply(`📊 **Totals by platform**\n\n${lines.join('\n\n')}\n\n————\n**All platforms** — in ${money(din)} · out ${money(dout)} · net ${money(din - dout)}`, { ephemeral: true });
       }
       if (SOON.includes(name)) return reply('That feature is coming soon.', { ephemeral: true });
 

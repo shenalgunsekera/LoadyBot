@@ -1,7 +1,7 @@
 import { Bot, Context, InlineKeyboard, session, type SessionFlavor } from 'grammy';
 import {
   accountForChat, accountByJoinToken, redeemConnectCode, redeemLinkCode, isAccountAdmin,
-  withAccount, isServiceable, storageConfigured, uploadReceipt, type Account,
+  withAccount, isServiceable, storageConfigured, uploadReceipt, platformTotals, type Account,
 } from '@loady/core';
 import { money, parseAmount, resolvePlayer, platformsFor, methodsFor, adminChatFor, type Player } from './ui';
 import { pgSessions } from './session-store';
@@ -206,6 +206,21 @@ export function buildBot(): Bot<Ctx> {
 
   bot.command('stop', async (ctx) => { ctx.session = { step: 'idle' }; await ctx.reply('Okay, stopped. Start again anytime with /deposit or /withdraw.'); });
   bot.command('guide', async (ctx) => { await ctx.reply(GUIDE, { parse_mode: 'Markdown' }); });
+
+  // Admin panel: money in / out per platform (ClubGG, Sportsbook, …).
+  bot.command('totals', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    if (!ctx.from || !(await isAccountAdmin(account.id, 'telegram', String(ctx.from.id)))) return ctx.reply('Admins only.');
+    const totals = await platformTotals(account.id);
+    if (totals.length === 0) return ctx.reply('No platforms set up yet.');
+    let din = 0, dout = 0;
+    const lines = totals.map((t) => {
+      din += Number(t.deposited); dout += Number(t.withdrawn);
+      const net = Number(t.deposited) - Number(t.withdrawn);
+      return `*${t.name}*\n  ⬇︎ Deposited in: ${money(Number(t.deposited))}\n  ⬆︎ Cashed out: ${money(Number(t.withdrawn))}\n  ⚖︎ Net: ${money(net)}`;
+    });
+    await ctx.reply(`📊 *Totals by platform*\n\n${lines.join('\n\n')}\n\n————\n*All platforms* — in ${money(din)} · out ${money(dout)} · net ${money(din - dout)}`, { parse_mode: 'Markdown' });
+  });
 
   // Link / edit a game account (ClubGG / Sportsbook).
   bot.command('editplatform', async (ctx) => {
