@@ -62,10 +62,11 @@ export function buildBot(): Bot<Ctx> {
       const account = await accountByJoinToken(arg);
       if (account) {
         await resolvePlayer(account.id, String(ctx.from!.id), ctx.from?.username ?? null, String(ctx.chat.id));
-        return ctx.reply(`👋 You're connected to *${account.name}*. Use /deposit to add funds or /withdraw to cash out.`, { parse_mode: 'Markdown' });
+        return welcome(ctx, account);
       }
     }
-    await ctx.reply('👋 Welcome to Loady. Open your club’s link to get started, or ask an admin to connect this chat with /connect.');
+    if (ctx.account) return welcome(ctx, ctx.account); // connected chat → same onboarding flow
+    await ctx.reply('👋 Welcome to Loady. Open your club’s link to get started, or ask an admin to add me to your club chat.');
   });
 
   bot.command('connect', async (ctx) => {
@@ -93,7 +94,8 @@ export function buildBot(): Bot<Ctx> {
     if (!acc || !botEnabled(acc, 'telegram')) return; // only a linked, enabled admin can bind
     const res = await autoBindChat(acc.id, 'telegram', String(ctx.chat.id), ctx.chat.title ?? null);
     if (res === 'new') {
-      await ctx.reply(`✅ Connected this chat to *${acc.name}*. Players here can /deposit and /withdraw.\nIf this is your payments group, run /setadmingroup.`, { parse_mode: 'Markdown' }).catch(() => {});
+      ctx.account = acc;
+      await welcome(ctx, acc).catch(() => {}); // kick off the onboarding flow, like Poker
     }
   });
 
@@ -131,6 +133,22 @@ export function buildBot(): Bot<Ctx> {
     return null;
   };
   const player = (ctx: Ctx, account: Account) => resolvePlayer(account.id, String(ctx.from!.id), ctx.from?.username ?? null, String(ctx.chat!.id));
+
+  // Poker-style onboarding: greet, show the menu, and kick off account-linking.
+  // Fired when the bot lands in a new chat and on /start in a connected chat.
+  const welcome = async (ctx: Ctx, account: Account) => {
+    const platforms = await platformsFor(account.id);
+    const kb = new InlineKeyboard();
+    for (const pl of platforms) kb.text(`Link ${pl.name}`, `ep:${pl.id}`).row();
+    await ctx.reply(
+      `👋 *Welcome to ${account.name}!*\n\nThis is your private chat with the club. Here's how it works:\n\n` +
+      `💸 /deposit — add funds\n🏦 /withdraw — cash out\n📋 /pending — cash-outs in progress\n🧾 /deposithistory · /withdrawalhistory\n❓ /guide — what every command does\n\n` +
+      (platforms.length
+        ? `First, link your game account so we can match your deposits & cash-outs — tap below:`
+        : `Ask your club admin to add a platform, then you're ready to /deposit.`),
+      { parse_mode: 'Markdown', reply_markup: platforms.length ? kb : undefined },
+    );
+  };
 
   bot.command('deposit', async (ctx) => {
     const account = await needClub(ctx); if (!account) return;
