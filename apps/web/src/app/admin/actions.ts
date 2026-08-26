@@ -19,3 +19,16 @@ export async function toggleAction(form: FormData) {
   }
   revalidatePath('/admin');
 }
+
+/** Operator switches one club's Telegram or Discord bot on/off (billable access). */
+export async function togglePlatform(form: FormData) {
+  const op = await getOpCtx();
+  if (!op) return;
+  const id = String(form.get('id') ?? '');
+  const platform = String(form.get('platform') ?? '');
+  const enable = String(form.get('enable') ?? '') === '1';
+  if (!id || (platform !== 'telegram' && platform !== 'discord')) return;
+  if (platform === 'telegram') await db()`update accounts set telegram_enabled = ${enable} where id = ${id}`;
+  else await db()`update accounts set discord_enabled = ${enable} where id = ${id}`;
+  revalidatePath('/admin');
+}

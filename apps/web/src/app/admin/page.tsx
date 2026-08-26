@@ -2,13 +2,14 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { db } from '@loady/core';
 import { getOpCtx } from '@/lib/session';
-import { toggleAction } from './actions';
+import { toggleAction, togglePlatform } from './actions';
 
 export const dynamic = 'force-dynamic';
 
 interface Row {
   id: string; name: string; slug: string; status: string; created_at: Date; status_note: string | null;
   plan: string | null; members: number; chats: number; players: number;
+  telegram_enabled: boolean; discord_enabled: boolean;
 }
 
 const BADGE: Record<string, string> = { active: 'ok', trialing: 'ok', past_due: 'warn', suspended: 'red', canceled: 'muted' };
@@ -20,6 +21,7 @@ export default async function AdminPage() {
 
   const rows = await db()<Row[]>`
     select a.id, a.name, a.slug, a.status, a.created_at, a.status_note, p.name as plan,
+      a.telegram_enabled, a.discord_enabled,
       (select count(*) from account_members m where m.account_id = a.id)::int as members,
       (select count(*) from chat_bindings c where c.account_id = a.id)::int as chats,
       (select count(*) from players pl where pl.account_id = a.id)::int as players
@@ -63,11 +65,11 @@ export default async function AdminPage() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Club</th><th>Status</th><th>Plan</th><th style={{ textAlign: 'right' }}>Admins</th><th style={{ textAlign: 'right' }}>Chats</th><th style={{ textAlign: 'right' }}>Players</th><th>Joined</th><th style={{ width: 130 }} /></tr>
+              <tr><th>Club</th><th>Status</th><th>Plan</th><th style={{ textAlign: 'right' }}>Admins</th><th style={{ textAlign: 'right' }}>Chats</th><th style={{ textAlign: 'right' }}>Players</th><th>Bots</th><th>Joined</th><th style={{ width: 130 }} /></tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>No customers yet.</td></tr>
+                <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--muted)', padding: 40 }}>No customers yet.</td></tr>
               ) : rows.map((r) => {
                 const live = serviceable(r.status);
                 return (
@@ -78,6 +80,23 @@ export default async function AdminPage() {
                     <td style={{ textAlign: 'right' }}>{r.members}</td>
                     <td style={{ textAlign: 'right' }}>{r.chats}</td>
                     <td style={{ textAlign: 'right' }}>{r.players}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {(['telegram', 'discord'] as const).map((pf) => {
+                          const on = pf === 'telegram' ? r.telegram_enabled : r.discord_enabled;
+                          return (
+                            <form key={pf} action={togglePlatform} title={`${on ? 'Disable' : 'Enable'} ${pf} for ${r.name}`}>
+                              <input type="hidden" name="id" value={r.id} />
+                              <input type="hidden" name="platform" value={pf} />
+                              <input type="hidden" name="enable" value={on ? '0' : '1'} />
+                              <button type="submit" className={`badge ${on ? 'ok' : 'muted'}`} style={{ border: 'none', cursor: 'pointer' }}>
+                                {pf === 'telegram' ? '📱 TG' : '💬 DC'} {on ? 'on' : 'off'}
+                              </button>
+                            </form>
+                          );
+                        })}
+                      </div>
+                    </td>
                     <td className="dim" style={{ fontSize: 13 }}>{new Date(r.created_at).toLocaleDateString()}</td>
                     <td>
                       <form action={toggleAction}>

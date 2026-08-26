@@ -14,6 +14,8 @@ export interface Account {
   stripe_subscription_id: string | null;
   trial_ends_at: Date | null;
   suspended_at: Date | null;
+  telegram_enabled: boolean;
+  discord_enabled: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -55,4 +57,10 @@ export interface ChatBinding {
 /** An account is allowed to serve players only while it is paid up. */
 export function isServiceable(status: AccountStatus): boolean {
   return status === 'active' || status === 'trialing';
+}
+
+/** Serviceable AND the operator has this specific bot switched on for the club. */
+export function botEnabled(account: Account, platform: BotPlatform): boolean {
+  if (!isServiceable(account.status)) return false;
+  return platform === 'telegram' ? account.telegram_enabled : account.discord_enabled;
 }

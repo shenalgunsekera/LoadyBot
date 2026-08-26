@@ -1,7 +1,7 @@
 import { Bot, Context, InlineKeyboard, session, type SessionFlavor } from 'grammy';
 import {
   accountForChat, accountByJoinToken, redeemConnectCode, redeemLinkCode, isAccountAdmin,
-  withAccount, isServiceable, storageConfigured, uploadReceipt, platformTotals, type Account,
+  withAccount, isServiceable, botEnabled, storageConfigured, uploadReceipt, platformTotals, type Account,
 } from '@loady/core';
 import { money, parseAmount, resolvePlayer, platformsFor, methodsFor, adminChatFor, type Player } from './ui';
 import { pgSessions } from './session-store';
@@ -86,8 +86,12 @@ export function buildBot(): Bot<Ctx> {
     if (ctx.chat) {
       const account = await accountForChat('telegram', String(ctx.chat.id));
       if (account) {
-        if (!isServiceable(account.status)) {
-          if (ctx.message?.text?.startsWith('/')) await ctx.reply('This club is paused right now. An owner needs to sort out billing on the Loady dashboard.');
+        if (!botEnabled(account, 'telegram')) {
+          if (ctx.message?.text?.startsWith('/')) {
+            await ctx.reply(isServiceable(account.status)
+              ? 'Telegram isn’t switched on for your club. Ask your Loady operator to enable it.'
+              : 'This club is paused right now. An owner needs to sort out billing on the Loady dashboard.');
+          }
           return;
         }
         ctx.account = account;

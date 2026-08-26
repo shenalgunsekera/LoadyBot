@@ -1,5 +1,5 @@
 import nacl from 'tweetnacl';
-import { accountForChat, redeemConnectCode, redeemLinkCode, isAccountAdmin, withAccount, isServiceable, storageConfigured, uploadReceipt, platformTotals } from '@loady/core';
+import { accountForChat, redeemConnectCode, redeemLinkCode, isAccountAdmin, withAccount, isServiceable, botEnabled, storageConfigured, uploadReceipt, platformTotals } from '@loady/core';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -74,7 +74,11 @@ export async function POST(req: Request): Promise<Response> {
       }
       const account = await acctFor(guildId);
       if (!account) return reply('This server isn’t connected to a club yet. An admin can run `/connect`.', { ephemeral: true });
-      if (!isServiceable(account.status)) return reply('This club is paused right now.', { ephemeral: true });
+      if (!botEnabled(account, 'discord')) {
+        return reply(isServiceable(account.status)
+          ? 'Discord isn’t switched on for your club. Ask your Loady operator to enable it.'
+          : 'This club is paused right now.', { ephemeral: true });
+      }
 
       if (name === 'deposit' || name === 'withdraw') {
         const payout = name === 'withdraw';
