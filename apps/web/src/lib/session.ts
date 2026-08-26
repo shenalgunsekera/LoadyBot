@@ -10,18 +10,16 @@ export interface Ctx {
 }
 
 /**
- * Resolve the logged-in member + their account from the session cookie.
- *
- * TODO(auth): this is the wiring point for the magic-link flow. The sessions and
- * login_tokens tables already exist (migration 0001). Once /login is built this
- * reads the `sid` cookie → sessions → account_members → accounts. Until then it
- * returns null so pages can render their signed-out / demo state.
+ * Resolve the logged-in member + their account from the `sid` session cookie.
+ * Columns are aliased to camelCase to match Ctx — db() has no camel transform,
+ * so a bare `m.account_id` would arrive as `account_id`, leaving ctx.accountId
+ * undefined and crashing every page that scopes a query by it.
  */
 export async function getCtx(): Promise<Ctx | null> {
   const sid = (await cookies()).get('sid')?.value;
   if (!sid) return null;
   const [row] = await db()<Ctx[]>`
-    select m.account_id, a.name as account_name, m.id as member_id, m.email, m.role
+    select m.account_id as "accountId", a.name as "accountName", m.id as "memberId", m.email, m.role
       from sessions s
       join account_members m on m.id = s.member_id
       join accounts a on a.id = m.account_id
@@ -37,7 +35,7 @@ export async function getOpCtx(): Promise<OpCtx | null> {
   const oid = (await cookies()).get('oid')?.value;
   if (!oid) return null;
   const [row] = await db()<OpCtx[]>`
-    select pa.id as admin_id, pa.email
+    select pa.id as "adminId", pa.email
       from platform_sessions ps
       join platform_admins pa on pa.id = ps.admin_id
      where ps.token = ${oid} and ps.expires_at > now()
