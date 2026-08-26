@@ -8,6 +8,7 @@ const jakarta = Bricolage_Grotesque({ subsets: ['latin'], weight: ['600', '700',
 export const metadata: Metadata = {
   title: 'Loady — one bot, every club',
   description: 'Run deposits and cash-outs for your club on Telegram & Discord. One bot, your own space, set up in minutes.',
+  icons: { icon: '/logo.png', apple: '/logo.png' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

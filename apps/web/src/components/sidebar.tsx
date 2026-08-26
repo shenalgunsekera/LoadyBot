@@ -19,7 +19,8 @@ export function Sidebar({ accountName }: { accountName: string }) {
   return (
     <aside style={{ width: 244, flexShrink: 0, borderRight: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', flexDirection: 'column', position: 'sticky', top: 0, height: '100vh' }}>
       <div style={{ padding: '20px 20px 12px', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19 }}>
-        <svg width="24" height="24" viewBox="0 0 26 26" aria-hidden><rect width="26" height="26" rx="8" fill="var(--accent)" /><path d="M8 7v9.5A2.5 2.5 0 0 0 10.5 19H18" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.png" alt="Loady" width={28} height={28} style={{ display: 'block', objectFit: 'contain' }} />
         Loady
       </div>
       <nav style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>

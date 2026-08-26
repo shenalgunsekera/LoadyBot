@@ -14,14 +14,14 @@
   --border-strong: #d4dce7;
 
   /* Brand — teal accent, coral for the rare warm highlight */
-  --accent:      #0fb6a6;
-  --accent-strong:#0a998c;
-  --accent-soft: #e4faf6;
-  --accent-ink:  #063f39;
+  --accent:      #3d9bf0;   /* Loady blue — from the logo */
+  --accent-strong:#2a7fd6;
+  --accent-soft: #e7f2fe;
+  --accent-ink:  #0c3c66;
   --coral:       #ff7a59;
-  --gold:        #e8b34a;
-  --gold-soft:   #f7ecd0;
-  --gold-ink:    #6b4e12;
+  --pink:        #f06bb0;   /* logo blush / heart — playful secondary */
+  --pink-soft:   #fde6f2;
+  --pink-ink:    #7a2b57;
   --night:       #0b1524;
   --night-2:     #0f1e33;
   --night-line:  rgba(255,255,255,.09);
@@ -74,7 +74,7 @@ p  { margin: 0; }
   transition: transform .12s ease, background .15s ease, box-shadow .15s ease; white-space: nowrap;
 }
 .btn:active { transform: translateY(1px); }
-.btn-primary { background: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(15,182,166,.28); }
+.btn-primary { background: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(61,155,240,.30); }
 .btn-primary:hover { background: var(--accent-strong); }
 .btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--border-strong); }
 .btn-ghost:hover { background: var(--surface-2); }
@@ -148,7 +148,7 @@ tr:last-child td { border-bottom: none; }
 
 /* Animated gradient wordmark on the hero headline */
 .grad-text {
-  background: linear-gradient(100deg, var(--accent) 0%, #26d0be 30%, var(--accent-strong) 55%, #2fb3e6 80%, var(--accent) 100%);
+  background: linear-gradient(100deg, var(--accent) 0%, #6cc0ff 30%, var(--accent-strong) 55%, #8ad0ff 80%, var(--accent) 100%);
   background-size: 200% 100%;
   -webkit-background-clip: text; background-clip: text; color: transparent;
   animation: gradientMove 6s linear infinite;
@@ -158,8 +158,8 @@ tr:last-child td { border-bottom: none; }
 .hero {
   position: relative; overflow: clip; color: #eef3fb;
   background:
-    radial-gradient(1100px 520px at 78% -8%, rgba(15,182,166,.20), transparent 60%),
-    radial-gradient(760px 480px at 8% 12%, rgba(232,179,74,.12), transparent 62%),
+    radial-gradient(1100px 520px at 78% -8%, rgba(61,155,240,.22), transparent 60%),
+    radial-gradient(760px 480px at 8% 12%, rgba(240,107,176,.12), transparent 62%),
     linear-gradient(180deg, var(--night) 0%, var(--night-2) 70%, var(--night) 100%);
 }
 .hero h1 { color: #fff; }
@@ -171,8 +171,8 @@ tr:last-child td { border-bottom: none; }
   background-size: 30px 30px;
   mask-image: radial-gradient(ellipse 85% 70% at 60% 25%, #000 35%, transparent 78%);
 }
-.hero-hem { height: 1px; background: linear-gradient(90deg, transparent, var(--accent), var(--gold), transparent); opacity: .6; }
-.pill.on-dark { background: rgba(15,182,166,.16); color: #7ff0e2; border: 1px solid rgba(15,182,166,.35); }
+.hero-hem { height: 1px; background: linear-gradient(90deg, transparent, var(--accent), var(--pink), transparent); opacity: .6; }
+.pill.on-dark { background: rgba(61,155,240,.16); color: #a9d4ff; border: 1px solid rgba(61,155,240,.38); }
 
 /* Live matching console — the hero's product visual */
 .console {
@@ -190,7 +190,7 @@ tr:last-child td { border-bottom: none; }
   border: 1px solid rgba(255,255,255,.05); margin-bottom: 8px; opacity: 0; animation: rowIn .5s both;
 }
 .led-ic { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-size: 14px; }
-.led-ic.in  { background: rgba(232,179,74,.16); color: var(--gold); }
+.led-ic.in  { background: rgba(240,107,176,.16); color: var(--pink); }
 .led-ic.out { background: rgba(47,179,230,.16); color: #6cc8f2; }
 .led-name { font-size: 13px; font-weight: 600; color: #e7edf6; }
 .led-sub  { font-size: 11.5px; color: #8595ab; }

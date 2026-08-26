@@ -71,7 +71,8 @@ export default function Landing() {
             <div className="console">
               <div className="console-top">
                 <span className="console-title">
-                  <svg width="18" height="18" viewBox="0 0 26 26" fill="none"><rect width="26" height="26" rx="8" fill="var(--accent)" /><path d="M8 7v9.5A2.5 2.5 0 0 0 10.5 19H18" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/logo.png" alt="" width={22} height={22} style={{ display: 'block' }} />
                   Live queue
                 </span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#9fb0c6' }}><span className="live-dot" /> matching</span>
@@ -221,12 +222,9 @@ export default function Landing() {
 }
 
 function Logo() {
-  return (
-    <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden>
-      <rect width="26" height="26" rx="8" fill="var(--accent)" />
-      <path d="M8 7v9.5A2.5 2.5 0 0 0 10.5 19H18" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+  // Local robot mascot (transparent PNG). Plain <img> — no next/image config needed.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/logo.png" alt="Loady" width={30} height={30} style={{ display: 'block', objectFit: 'contain' }} />;
 }
 function Ico({ d }: { d: string }) {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={d} /></svg>;

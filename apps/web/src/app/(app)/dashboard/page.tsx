@@ -29,7 +29,16 @@ export default async function Overview() {
        order by q.queue_position limit 20`;
     return { pos: pos!, toVerify, queue };
   });
-  const [totals, clubs] = await Promise.all([platformTotals(ctx.accountId), clubTotals(ctx.accountId)]);
+  // Sequential (not Promise.all) so two RLS transactions never share a pooled
+  // connection concurrently; defensive so a reporting query can't white-screen.
+  let totals: Awaited<ReturnType<typeof platformTotals>> = [];
+  let clubs: Awaited<ReturnType<typeof clubTotals>> = [];
+  try {
+    totals = await platformTotals(ctx.accountId);
+    clubs = await clubTotals(ctx.accountId);
+  } catch (e) {
+    console.error('[dashboard totals]', e);
+  }
   const platformRows: PlatformRow[] = totals.map((t) => ({
     id: t.id, name: t.name, deposited: Number(t.deposited), withdrawn: Number(t.withdrawn),
     clubs: clubs.filter((c) => c.platformId === t.id).map((c) => ({ id: c.clubId, name: c.name, deposited: Number(c.deposited), withdrawn: Number(c.withdrawn) })),
