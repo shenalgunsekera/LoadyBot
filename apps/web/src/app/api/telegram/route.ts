@@ -12,7 +12,9 @@ let handle: ((req: Request) => Promise<Response>) | null = null;
 export async function POST(req: Request): Promise<Response> {
   if (!handle) {
     const bot = buildBot();
-    handle = webhookCallback(bot, 'std/http', { secretToken: process.env.TELEGRAM_WEBHOOK_SECRET });
+    // No secret_token check — the webhook is accepted as-is so setup never needs a
+    // matching TELEGRAM_WEBHOOK_SECRET. (The bot token in the URL path is the guard.)
+    handle = webhookCallback(bot, 'std/http');
   }
   return handle(req);
 }
