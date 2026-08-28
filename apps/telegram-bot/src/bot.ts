@@ -608,6 +608,19 @@ export function buildBot(): Bot<Ctx> {
     if (s.step === 'wd_amount') {
       const amount = parseAmount(ctx.message.text);
       if (amount == null) return ctx.reply('That doesn’t look like an amount. Try `50`.', { parse_mode: 'Markdown' });
+      const p = await player(ctx, account);
+      // Reuse the handle they last used for this method — no re-typing (like Poker).
+      const [saved] = await withAccount(account.id, (sql) => sql<{ payout_handle: string }[]>`
+        select payout_handle from withdraw_requests where player_id = ${p.id} and method_id = ${s.methodId!} and payout_handle is not null order by created_at desc limit 1`);
+      if (saved?.payout_handle) {
+        try {
+          const [w] = await withAccount(account.id, (sql) => sql<{ amount: number }[]>`
+            select amount from withdraw_create(${p.id}, ${s.platformId!}, ${s.methodId!}, ${amount}, ${saved.payout_handle})`);
+          ctx.session = { step: 'idle' };
+          await ctx.reply(`✅ *Cash-out for ${money(w!.amount)} is in the queue* → paying your usual \`${saved.payout_handle}\`. Need it elsewhere? /cancelwithdraw and start again.`, { parse_mode: 'Markdown' });
+        } catch (e) { ctx.session = { step: 'idle' }; await ctx.reply(`❌ ${errText(e)}`); }
+        return;
+      }
       ctx.session = { ...s, step: 'wd_handle', amount };
       return ctx.reply('Where should we send it? *Reply* with your payout handle (e.g. your Venmo / Zelle / wallet).', { parse_mode: 'Markdown', reply_markup: { force_reply: true } });
     }

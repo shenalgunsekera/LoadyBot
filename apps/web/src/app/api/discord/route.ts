@@ -13,7 +13,7 @@ const update = (content: string, components: unknown[] = []) => json({ type: 7, 
 const row = (c: unknown) => ({ type: 1, components: [c] });
 const select = (id: string, placeholder: string, options: { label: string; value: string }[]) => row({ type: 3, custom_id: id, placeholder, options });
 const button = (id: string, label: string, style: number) => ({ type: 2, custom_id: id, label, style });
-const textInput = (id: string, label: string) => row({ type: 4, custom_id: id, label, style: 1, required: true });
+const textInput = (id: string, label: string, value?: string) => row({ type: 4, custom_id: id, label, style: 1, required: true, ...(value ? { value } : {}) });
 const modal = (id: string, title: string, inputs: unknown[]) => json({ type: 9, data: { custom_id: id, title, components: inputs } });
 
 const acctFor = (guildId: string | undefined) => (guildId ? accountForChat('discord', guildId) : Promise.resolve(null));
@@ -322,7 +322,13 @@ export async function POST(req: Request): Promise<Response> {
       }
       const [k, platformId] = cid.split('|');
       if (k === 'dm') return modal(`da|${platformId}|${value}`, 'Add funds', [textInput('amount', 'Amount (e.g. 50)')]);
-      if (k === 'wm') return modal(`wa|${platformId}|${value}`, 'Cash out', [textInput('amount', 'Amount (e.g. 50)'), textInput('handle', 'Where to send it (payout handle)')]);
+      if (k === 'wm') {
+        // Pre-fill the handle with what they last used for this method — no re-typing.
+        const p = await touchPlayer(account.id, userId, username, i.channel_id);
+        const [saved] = await withAccount(account.id, (sql) => sql<{ payout_handle: string }[]>`
+          select payout_handle from withdraw_requests where player_id = ${p.id} and method_id = ${value} and payout_handle is not null order by created_at desc limit 1`);
+        return modal(`wa|${platformId}|${value}`, 'Cash out', [textInput('amount', 'Amount (e.g. 50)'), textInput('handle', 'Where to send it (payout handle)', saved?.payout_handle ?? undefined)]);
+      }
 
       if (k === 'v' || k === 'x') {
         if (!(await isAccountAdmin(account.id, 'discord', userId))) return reply('Admins only.', { ephemeral: true });
