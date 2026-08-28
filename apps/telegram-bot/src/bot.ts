@@ -405,6 +405,44 @@ export function buildBot(): Bot<Ctx> {
     } catch (e) { await ctx.reply(`❌ ${errText(e)}`); }
   });
 
+  // Admin: /reversepayment [N] — a payment we already sent was fake. Lists the last
+  // N sent payments; tapping one un-sends it (amount back on the cash-out, club
+  // absorbs). Default 10, max 20.
+  bot.command('reversepayment', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    if (!(await adminGate(account, ctx))) return ctx.reply('Admins only.');
+    const p = await chatPlayer(account, ctx);
+    if (!p) return ctx.reply('No player is linked to this chat yet.');
+    const n = Math.min(20, Math.max(1, parseInt(String(ctx.match ?? '').trim(), 10) || 10));
+    const fills = await withAccount(account.id, (sql) => sql<{ id: string; amount: number; released_at: string | null }[]>`
+      select f.id, f.amount, f.released_at from fills f join withdraw_requests w on w.id = f.withdraw_id
+       where w.player_id = ${p.id} and f.status = 'released' order by f.released_at desc nulls last, f.created_at desc limit ${n}`);
+    if (!fills.length) return ctx.reply(`${p.display_name ?? 'This player'} has no sent payment to reverse.`);
+    const kb = new InlineKeyboard();
+    for (const f of fills) {
+      const day = f.released_at ? ' · ' + new Date(f.released_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+      kb.text(`↩️ ${money(f.amount)}${day}`, `rvp:${f.id}`).row();
+    }
+    await ctx.reply(`Which payment to *${p.display_name ?? 'this player'}* should I reverse? Tap the fake one:`, { parse_mode: 'Markdown', reply_markup: kb });
+  });
+  bot.callbackQuery(/^rvp:(.+)$/, async (ctx) => {
+    const account = ctx.account; if (!account) return ctx.answerCallbackQuery();
+    if (!ctx.from || !(await isAccountAdmin(account.id, 'telegram', String(ctx.from.id)))) return ctx.answerCallbackQuery({ text: 'Admins only.' });
+    const fillId = ctx.match![1]!;
+    try {
+      const info = await withAccount(account.id, async (sql) => {
+        const [pre] = await sql<{ amount: number }[]>`select amount from fills where id = ${fillId}`;
+        await sql`select fill_reverse(${fillId}, null, 'admin reversal')`;
+        const [w] = await sql<{ amount: number; amount_remaining: number; name: string | null }[]>`
+          select w.amount, w.amount_remaining, pl.display_name as name
+            from withdraw_requests w join fills fl on fl.withdraw_id = w.id join players pl on pl.id = w.player_id where fl.id = ${fillId}`;
+        return { paid: pre?.amount ?? 0, ...w };
+      });
+      await ctx.answerCallbackQuery({ text: 'Reversed ✓' });
+      await ctx.reply(`↩️ Reversed the *${money(info.paid)}* payment to ${info.name ?? 'the player'} — back on their cash-out (now ${money(info.amount_remaining ?? 0)}/${money(info.amount ?? 0)} to be sent). The club absorbed it.`, { parse_mode: 'Markdown' });
+    } catch (e) { await ctx.answerCallbackQuery({ text: errText(e), show_alert: true }); }
+  });
+
   // Admin panel: money in / out per platform (ClubGG, Sportsbook, …).
   bot.command('totals', async (ctx) => {
     const account = await needClub(ctx); if (!account) return;

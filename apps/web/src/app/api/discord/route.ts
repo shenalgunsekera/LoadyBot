@@ -230,6 +230,24 @@ export async function POST(req: Request): Promise<Response> {
         if (res.grew) return reply(`✅ Added ${money(cents)} to ${who}’s cash-out — now ${money(res.amount)}.`, { ephemeral: false });
         return reply(res.remaining > 0 ? `✅ Recorded ${money(cents)} paid to ${who} — ${money(res.remaining)}/${money(res.amount)} still to send.` : `✅ Recorded ${money(cents)} — ${who}’s cash-out is complete. 🎉`, { ephemeral: false });
       }
+      if (name === 'reversepayment') {
+        if (!(await isAccountAdmin(account.id, 'discord', userId))) return reply('Admins only.', { ephemeral: true });
+        const [p] = await withAccount(account.id, (sql) => sql<{ id: string; display_name: string | null }[]>`select id, display_name from players where dc_channel_id = ${i.channel_id} order by created_at limit 1`);
+        if (!p) return reply('No player is linked to this channel yet.', { ephemeral: true });
+        const cnt = Number(i.data.options?.find((o: { name: string }) => o.name === 'count')?.value ?? 10);
+        const n = Math.min(20, Math.max(1, cnt || 10));
+        const fills = await withAccount(account.id, (sql) => sql<{ id: string; amount: number; released_at: string | null }[]>`
+          select f.id, f.amount, f.released_at from fills f join withdraw_requests w on w.id = f.withdraw_id
+           where w.player_id = ${p.id} and f.status = 'released' order by f.released_at desc nulls last, f.created_at desc limit ${n}`);
+        if (!fills.length) return reply(`${p.display_name ?? 'This player'} has no sent payment to reverse.`, { ephemeral: true });
+        const btns = fills.map((f) => {
+          const day = f.released_at ? ' · ' + new Date(f.released_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+          return button(`rvp|${f.id}`, `↩️ ${money(f.amount)}${day}`.slice(0, 80), 2);
+        });
+        const btnRows: unknown[] = [];
+        for (let k = 0; k < btns.length; k += 5) btnRows.push({ type: 1, components: btns.slice(k, k + 5) });
+        return reply(`Which payment to ${p.display_name ?? 'this player'} should I reverse? Tap the fake one:`, { ephemeral: true, components: btnRows.slice(0, 5) });
+      }
       if (SOON.includes(name)) return reply('That feature is coming soon.', { ephemeral: true });
 
       if (name === 'canceldeposit') {
@@ -267,6 +285,22 @@ export async function POST(req: Request): Promise<Response> {
       if (!account) return update('This server isn’t connected.');
       const cid: string = i.data.custom_id;
       const value: string = i.data.values?.[0];
+
+      if (cid.startsWith('rvp|')) {
+        if (!(await isAccountAdmin(account.id, 'discord', userId))) return update('Admins only.');
+        const fillId = cid.split('|')[1]!;
+        try {
+          const info = await withAccount(account.id, async (sql) => {
+            const [pre] = await sql<{ amount: number }[]>`select amount from fills where id = ${fillId}`;
+            await sql`select fill_reverse(${fillId}, null, 'admin reversal')`;
+            const [w] = await sql<{ amount: number; amount_remaining: number; name: string | null }[]>`
+              select w.amount, w.amount_remaining, pl.display_name as name
+                from withdraw_requests w join fills fl on fl.withdraw_id = w.id join players pl on pl.id = w.player_id where fl.id = ${fillId}`;
+            return { paid: pre?.amount ?? 0, ...w };
+          });
+          return update(`↩️ Reversed the ${money(info.paid)} payment to ${info.name ?? 'the player'} — back on their cash-out (now ${money(info.amount_remaining ?? 0)}/${money(info.amount ?? 0)} to be sent). The club absorbed it.`);
+        } catch (e) { return reply(`❌ ${err(e)}`, { ephemeral: true }); }
+      }
 
       if (cid === 'ep') return modal(`epm|${value}`, 'Link account', [textInput('uid', 'Your username / ID on that platform')]);
       if (cid === 'ec') {

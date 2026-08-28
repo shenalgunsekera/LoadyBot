@@ -33,6 +33,8 @@ export const COMMANDS = [
   plain('totals', '(admin) Deposited & cashed-out totals per platform'),
   new SlashCommandBuilder().setName('adjust').setDescription('(admin) +amount grows a cash-out; -amount records a payment you made')
     .addNumberOption((o) => o.setName('amount').setDescription('Dollars — e.g. 50 to grow, -50 to record a payment').setRequired(true)),
+  new SlashCommandBuilder().setName('reversepayment').setDescription('(admin) Undo a sent payment that turned out fake')
+    .addIntegerOption((o) => o.setName('count').setDescription('How many recent payments to show (default 10)').setMinValue(1).setMaxValue(20)),
 ].map((c) => c.toJSON());
 
 /** The one shared bot serves every club, so commands are GLOBAL. Set
