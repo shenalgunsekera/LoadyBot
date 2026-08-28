@@ -565,6 +565,12 @@ export function buildBot(): Bot<Ctx> {
     const fileId = ctx.message.photo?.at(-1)?.file_id ?? ctx.message.document?.file_id;
     if (!fileId) return ctx.reply('Send a picture of your payment confirmation.');
 
+    // If the deposit timed out / was cancelled while the player was still in receipt
+    // mode, don't accept or acknowledge a late screenshot — just drop out of receipt
+    // mode so they start a fresh /deposit.
+    const [fill] = await withAccount(account.id, (sql) => sql<{ status: string }[]>`select status from fills where id = ${s.fillId!}`);
+    if (!fill || fill.status !== 'locked') { ctx.session = { step: 'idle' }; return; }
+
     await withAccount(account.id, (sql) => sql`select fill_submit_proof(${s.fillId!}, null, null)`);
 
     // Save the screenshot durably (Supabase Storage) + record the receipt row.
