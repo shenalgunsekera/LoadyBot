@@ -157,11 +157,16 @@ export function buildBot(): Bot<Ctx> {
     );
   };
 
-  // Ask about platform #idx (Yes → link it, Skip → next). Finishes when past the last.
+  // Ask about platform #idx. With ONE platform there's nothing to choose — go
+  // straight to the username. With several, ask Yes/Skip. Finishes past the last.
   const askPlatform = async (ctx: Ctx, account: Account, idx: number) => {
     const platforms = await platformsFor(account.id);
     if (idx >= platforms.length) return obFinish(ctx, account);
     const pf = platforms[idx]!;
+    if (platforms.length === 1) {
+      ctx.session = { step: 'ob_uid', platformId: pf.id, ob: { idx } };
+      return ctx.reply(`What's your *${pf.name}* username / ID? *Reply* with it.`, FR);
+    }
     ctx.session = { step: 'ob_ask', platformId: pf.id, ob: { idx } };
     const kb = new InlineKeyboard().text('✅ Yes', `oby:${idx}`).text('Skip', `obn:${idx}`);
     await ctx.reply(`Do you play on *${pf.name}*?`, { parse_mode: 'Markdown', reply_markup: kb });
@@ -488,7 +493,12 @@ export function buildBot(): Bot<Ctx> {
       await withAccount(account.id, (sql) => sql`select player_set_platform(${p.id}, ${s.platformId!}, ${uid})`);
       const clubs = await withAccount(account.id, (sql) => sql<{ id: string; name: string }[]>`select id, name from clubs order by name`);
       const idx = s.ob?.idx ?? 0;
-      if (clubs.length) { ctx.session = { step: 'ob_club', platformId: s.platformId, ob: { idx } }; return showObClubs(ctx, clubs); }
+      // One club → assign it silently. Several → let them pick. None → move on.
+      if (clubs.length === 1) {
+        await withAccount(account.id, (sql) => sql`select player_set_club(${p.id}, ${s.platformId!}, ${clubs[0]!.id})`);
+        return askPlatform(ctx, account, idx + 1);
+      }
+      if (clubs.length > 1) { ctx.session = { step: 'ob_club', platformId: s.platformId, ob: { idx } }; return showObClubs(ctx, clubs); }
       return askPlatform(ctx, account, idx + 1);
     }
 
