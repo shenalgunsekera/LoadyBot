@@ -16,3 +16,15 @@ export async function markLoaded(form: FormData) {
   revalidatePath('/jobs');
   revalidatePath('/dashboard');
 }
+
+/** Mark a cash-out's chips as taken off the player's account. */
+export async function markUnloaded(form: FormData) {
+  const ctx = await getCtx();
+  if (!ctx) return;
+  const id = String(form.get('id') ?? '');
+  if (!id) return;
+  await withAccount(ctx.accountId, (sql) => sql`
+    update withdraw_requests set unloaded_at = now(), unloaded_by = ${ctx.memberId}
+     where id = ${id} and unloaded_at is null`);
+  revalidatePath('/jobs');
+}
