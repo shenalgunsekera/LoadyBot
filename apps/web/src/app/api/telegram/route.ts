@@ -16,5 +16,13 @@ export async function POST(req: Request): Promise<Response> {
     // matching TELEGRAM_WEBHOOK_SECRET. (The bot token in the URL path is the guard.)
     handle = webhookCallback(bot, 'std/http');
   }
-  return handle(req);
+  // Always 200 back to Telegram. A thrown handler error (e.g. a callback query that
+  // expired during a cold start) must never surface as a 500 — that makes Telegram
+  // retry-storm the same update and leaves the user's button "stuck".
+  try {
+    return await handle(req);
+  } catch (e) {
+    console.error('[telegram webhook]', e);
+    return new Response('ok');
+  }
 }

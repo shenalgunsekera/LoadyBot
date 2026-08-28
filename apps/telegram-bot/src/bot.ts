@@ -181,31 +181,35 @@ export function buildBot(): Bot<Ctx> {
   const acctFromCtx = async (ctx: Ctx): Promise<Account | null> =>
     ctx.account ?? (ctx.chat ? await accountForChat('telegram', String(ctx.chat.id)) : null);
 
+  // ack() answers the callback immediately and NEVER throws — a callback query can
+  // expire during a cold start, and letting that bubble up 500s the webhook and
+  // strands the button ("stuck on Yes").
+  const ack = (ctx: Ctx, opts?: Parameters<Ctx['answerCallbackQuery']>[0]) => ctx.answerCallbackQuery(opts).catch(() => {});
   bot.callbackQuery(/^oby:(\d+)$/, async (ctx) => {
-    const account = await acctFromCtx(ctx); if (!account) return ctx.answerCallbackQuery();
+    await ack(ctx);
+    const account = await acctFromCtx(ctx); if (!account) return;
     ctx.account = account;
     const idx = Number(ctx.match![1]);
     const platforms = await platformsFor(account.id);
     const pf = platforms[idx];
-    await ctx.answerCallbackQuery();
     if (!pf) return obFinish(ctx, account);
     ctx.session = { step: 'ob_uid', platformId: pf.id, ob: { idx } };
-    await ctx.reply(`Your username / ID on *${pf.name}*? *Reply* with it.`, FR);
+    await ctx.reply(`Your username / ID on *${pf.name}*? *Reply* with it.`, FR).catch(() => {});
   });
   bot.callbackQuery(/^obn:(\d+)$/, async (ctx) => {
-    const account = await acctFromCtx(ctx); if (!account) return ctx.answerCallbackQuery();
+    await ack(ctx);
+    const account = await acctFromCtx(ctx); if (!account) return;
     ctx.account = account;
-    await ctx.answerCallbackQuery();
     await askPlatform(ctx, account, Number(ctx.match![1]) + 1);
   });
   bot.callbackQuery(/^obc:(.+)$/, async (ctx) => {
-    const account = await acctFromCtx(ctx); if (!account) return ctx.answerCallbackQuery();
+    await ack(ctx, { text: 'Saved ✓' });
+    const account = await acctFromCtx(ctx); if (!account) return;
     ctx.account = account;
     const p = await player(ctx, account);
     const idx = ctx.session.ob?.idx ?? 0;
     const platformId = ctx.session.platformId!;
     await withAccount(account.id, (sql) => sql`select player_set_club(${p.id}, ${platformId}, ${ctx.match![1]!})`);
-    await ctx.answerCallbackQuery({ text: 'Saved ✓' });
     await askPlatform(ctx, account, idx + 1);
   });
 
@@ -228,15 +232,15 @@ export function buildBot(): Bot<Ctx> {
   }
 
   bot.callbackQuery(/^dp:(.+)$/, async (ctx) => {
-    const account = ctx.account; if (!account) return ctx.answerCallbackQuery();
-    await ctx.answerCallbackQuery();
+    await ack(ctx);
+    const account = ctx.account; if (!account) return;
     await showDepositMethods(ctx, account, ctx.match![1]!);
   });
   bot.callbackQuery(/^dm:(.+):(.+)$/, async (ctx) => {
-    if (!ctx.account) return ctx.answerCallbackQuery();
+    await ack(ctx);
+    if (!ctx.account) return;
     ctx.session = { step: 'dep_amount', platformId: ctx.match![1]!, methodId: ctx.match![2]! };
-    await ctx.answerCallbackQuery();
-    await ctx.reply('How much would you like to add? *Reply* with the number, e.g. `50`.', { parse_mode: 'Markdown', reply_markup: { force_reply: true } });
+    await ctx.reply('How much would you like to add? *Reply* with the number, e.g. `50`.', { parse_mode: 'Markdown', reply_markup: { force_reply: true } }).catch(() => {});
   });
 
   bot.command('withdraw', async (ctx) => {
@@ -256,14 +260,15 @@ export function buildBot(): Bot<Ctx> {
     await ctx.reply('How would you like to get paid?', { reply_markup: kb });
   }
   bot.callbackQuery(/^wp:(.+)$/, async (ctx) => {
-    const account = ctx.account; if (!account) return ctx.answerCallbackQuery();
-    await ctx.answerCallbackQuery();
+    await ack(ctx);
+    const account = ctx.account; if (!account) return;
     await showWithdrawMethods(ctx, account, ctx.match![1]!);
   });
   bot.callbackQuery(/^wm:(.+):(.+)$/, async (ctx) => {
+    await ack(ctx);
+    if (!ctx.account) return;
     ctx.session = { step: 'wd_amount', platformId: ctx.match![1]!, methodId: ctx.match![2]! };
-    await ctx.answerCallbackQuery();
-    await ctx.reply('How much would you like to cash out? *Reply* with the number, e.g. `50`.', { parse_mode: 'Markdown', reply_markup: { force_reply: true } });
+    await ctx.reply('How much would you like to cash out? *Reply* with the number, e.g. `50`.', { parse_mode: 'Markdown', reply_markup: { force_reply: true } }).catch(() => {});
   });
 
   bot.command('canceldeposit', async (ctx) => {
