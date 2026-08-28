@@ -31,6 +31,8 @@ export const COMMANDS = [
   plain('pausewithdraw', "(admin) Pause a player's cash-out"),
   plain('resumewithdraw', "(admin) Resume a player's cash-out"),
   plain('totals', '(admin) Deposited & cashed-out totals per platform'),
+  new SlashCommandBuilder().setName('adjust').setDescription('(admin) +amount grows a cash-out; -amount records a payment you made')
+    .addNumberOption((o) => o.setName('amount').setDescription('Dollars — e.g. 50 to grow, -50 to record a payment').setRequired(true)),
 ].map((c) => c.toJSON());
 
 /** The one shared bot serves every club, so commands are GLOBAL. Set

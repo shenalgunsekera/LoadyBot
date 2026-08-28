@@ -202,6 +202,34 @@ export async function POST(req: Request): Promise<Response> {
         if (!res.done) return reply(pausing ? `${who} has no cash-out in the queue.` : `${who} has no paused cash-out.`, { ephemeral: true });
         return reply(pausing ? `⏸ Paused ${who}’s cash-out — out of the queue until /resumewithdraw.` : `▶️ Resumed ${who}’s cash-out — back in the queue.`, { ephemeral: false });
       }
+      if (name === 'adjust') {
+        if (!(await isAccountAdmin(account.id, 'discord', userId))) return reply('Admins only.', { ephemeral: true });
+        const dollars = Number(i.data.options?.find((o: { name: string }) => o.name === 'amount')?.value ?? 0);
+        const cents = Math.round(Math.abs(dollars) * 100);
+        if (!Number.isFinite(cents) || cents <= 0) return reply('Enter a non-zero amount, e.g. `50` to grow the cash-out or `-50` to record a payment.', { ephemeral: true });
+        const negative = dollars < 0;
+        const res = await withAccount(account.id, async (sql) => {
+          const [p] = await sql<{ id: string; display_name: string | null }[]>`select id, display_name from players where dc_channel_id = ${i.channel_id} order by created_at limit 1`;
+          if (!p) return { player: null as null, done: false, grew: false, amount: 0, remaining: 0 };
+          if (!negative) {
+            const [wr] = await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled','paused') order by created_at desc limit 1`;
+            if (!wr) return { player: p, done: false, grew: true, amount: 0, remaining: 0 };
+            const [r] = await sql<{ amount: number }[]>`select amount from withdraw_topup(${wr.id}, ${cents})`;
+            return { player: p, done: true, grew: true, amount: r!.amount, remaining: 0 };
+          }
+          const [mem] = await sql<{ id: string }[]>`select id from account_members where account_id = ${account.id} and discord_user_id = ${userId} limit 1`;
+          const [wr] = await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled') order by created_at desc limit 1`;
+          if (!wr) return { player: p, done: false, grew: false, amount: 0, remaining: 0 };
+          await sql`select withdraw_club_payout(${wr.id}, ${mem?.id ?? null}, ${cents}, 'admin /adjust')`;
+          const [w2] = await sql<{ amount: number; amount_remaining: number }[]>`select amount, amount_remaining from withdraw_requests where id = ${wr.id}`;
+          return { player: p, done: true, grew: false, amount: w2!.amount, remaining: w2!.amount_remaining };
+        });
+        if (!res.player) return reply('No player is linked to this channel yet.', { ephemeral: true });
+        const who = res.player.display_name ?? 'the player';
+        if (!res.done) return reply(`${who} has no cash-out in the queue${res.grew ? ' to add to' : ''}.`, { ephemeral: true });
+        if (res.grew) return reply(`✅ Added ${money(cents)} to ${who}’s cash-out — now ${money(res.amount)}.`, { ephemeral: false });
+        return reply(res.remaining > 0 ? `✅ Recorded ${money(cents)} paid to ${who} — ${money(res.remaining)}/${money(res.amount)} still to send.` : `✅ Recorded ${money(cents)} — ${who}’s cash-out is complete. 🎉`, { ephemeral: false });
+      }
       if (SOON.includes(name)) return reply('That feature is coming soon.', { ephemeral: true });
 
       if (name === 'canceldeposit') {

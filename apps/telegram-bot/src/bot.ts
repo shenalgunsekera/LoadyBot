@@ -365,6 +365,46 @@ export function buildBot(): Bot<Ctx> {
     } catch (e) { await ctx.reply(`❌ ${errText(e)}`); }
   });
 
+  // Admin: /adjust +50 grows a cash-out; /adjust -50 records a payment you made.
+  bot.command('adjust', async (ctx) => {
+    const account = await needClub(ctx); if (!account) return;
+    if (!(await adminGate(account, ctx))) return ctx.reply('Admins only.');
+    const p = await chatPlayer(account, ctx);
+    if (!p) return ctx.reply('No player is linked to this chat yet.');
+    const raw = String(ctx.match ?? '').trim();
+    const m = raw.match(/^([+-]?)\s*(.+)$/);
+    const cents = m ? parseAmount(m[2]!) : null;
+    if (!m || cents == null || cents <= 0) {
+      return ctx.reply('Send an amount — `/adjust 50` grows their cash-out, `/adjust -50` records a $50 payment you made.', { parse_mode: 'Markdown' });
+    }
+    const negative = m[1] === '-';
+    try {
+      if (!negative) {
+        const w = await withAccount(account.id, async (sql) => {
+          const [wr] = await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled','paused') order by created_at desc limit 1`;
+          if (!wr) return undefined;
+          const [r] = await sql<{ amount: number }[]>`select amount from withdraw_topup(${wr.id}, ${cents})`;
+          return r;
+        });
+        if (!w) return ctx.reply('That player has no cash-out in the queue to add to.');
+        await ctx.reply(`✅ Added *${money(cents)}* to ${p.display_name ?? 'their'} cash-out — now *${money(w.amount)}*.`, { parse_mode: 'Markdown' });
+      } else {
+        const info = await withAccount(account.id, async (sql) => {
+          const [mem] = await sql<{ id: string }[]>`select id from account_members where account_id = ${account.id} and telegram_user_id = ${String(ctx.from!.id)} limit 1`;
+          const [wr] = await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled') order by created_at desc limit 1`;
+          if (!wr) return undefined;
+          await sql`select withdraw_club_payout(${wr.id}, ${mem?.id ?? null}, ${cents}, 'admin /adjust')`;
+          const [w2] = await sql<{ amount: number; amount_remaining: number }[]>`select amount, amount_remaining from withdraw_requests where id = ${wr.id}`;
+          return w2;
+        });
+        if (!info) return ctx.reply('That player has no cash-out in the queue to record a payment against.');
+        await ctx.reply(info.amount_remaining > 0
+          ? `✅ Recorded *${money(cents)}* paid to ${p.display_name ?? 'them'} — ${money(info.amount_remaining)}/${money(info.amount)} still to send.`
+          : `✅ Recorded *${money(cents)}* — ${p.display_name ?? 'their'} cash-out is complete. 🎉`, { parse_mode: 'Markdown' });
+      }
+    } catch (e) { await ctx.reply(`❌ ${errText(e)}`); }
+  });
+
   // Admin panel: money in / out per platform (ClubGG, Sportsbook, …).
   bot.command('totals', async (ctx) => {
     const account = await needClub(ctx); if (!account) return;
