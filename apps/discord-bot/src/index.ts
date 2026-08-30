@@ -9,7 +9,7 @@ import {
   loadRootEnv, accountForChat, redeemConnectCode, redeemLinkCode, isAccountAdmin,
   withAccount, isServiceable, type Account,
 } from '@loady/core';
-import { money, whole, amountBounds, amountProblem, receiptInstruction, savedPayoutHandle, resolvePlayer, platformsFor, methodsFor } from './ui';
+import { money, whole, amountBounds, amountProblem, receiptInstruction, savedPayoutHandle, resolvePlayer, playerPlatformsFor, methodsFor } from './ui';
 import { registerCommands } from './register-commands';
 
 loadRootEnv();
@@ -63,15 +63,17 @@ async function cmdLink(i: ChatInputCommandInteraction) {
 
 // ── Deposit: platform → method → amount modal ────────────────────────────────
 async function startDeposit(i: ChatInputCommandInteraction, account: Account) {
-  const platforms = await platformsFor(account.id);
-  if (platforms.length === 0) return i.reply({ content: 'No platforms are set up yet — ask an admin.', flags: EPH });
+  const player = await resolvePlayer(account.id, i.user.id, i.user.username, i.channelId ?? '');
+  const platforms = await playerPlatformsFor(account.id, player.id);
+  if (platforms.length === 0) return i.reply({ content: 'You don’t have an account on any platform yet. Run /start to set one up.', flags: EPH });
   if (platforms.length === 1) return sendMethods(i, account, platforms[0]!.id, 'd', false);
   const menu = new StringSelectMenuBuilder().setCustomId('dp').setPlaceholder('Choose account').addOptions(platforms.map((p) => ({ label: p.name, value: p.id })));
   return i.reply({ content: 'Which account are you adding to?', components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)], flags: EPH });
 }
 async function startWithdraw(i: ChatInputCommandInteraction, account: Account) {
-  const platforms = await platformsFor(account.id);
-  if (platforms.length === 0) return i.reply({ content: 'No platforms are set up yet — ask an admin.', flags: EPH });
+  const player = await resolvePlayer(account.id, i.user.id, i.user.username, i.channelId ?? '');
+  const platforms = await playerPlatformsFor(account.id, player.id);
+  if (platforms.length === 0) return i.reply({ content: 'You don’t have an account on any platform yet. Run /start to set one up.', flags: EPH });
   if (platforms.length === 1) return sendMethods(i, account, platforms[0]!.id, 'w', false);
   const menu = new StringSelectMenuBuilder().setCustomId('wp').setPlaceholder('Choose account').addOptions(platforms.map((p) => ({ label: p.name, value: p.id })));
   return i.reply({ content: 'Which account are you cashing out from?', components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)], flags: EPH });

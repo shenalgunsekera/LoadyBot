@@ -4,7 +4,7 @@ import {
   accountForAdminUser, autoBindChat, markAdminChat,
   withAccount, isServiceable, botEnabled, storageConfigured, uploadReceipt, platformTotals, type Account,
 } from '@loady/core';
-import { money, whole, parseAmount, amountBounds, amountProblem, receiptInstruction, resolvePlayer, platformsFor, methodsFor, adminChatFor, type Player } from './ui';
+import { money, whole, parseAmount, amountBounds, amountProblem, receiptInstruction, resolvePlayer, playerPlatformsFor, methodsFor, adminChatFor, type Player } from './ui';
 import { pgSessions } from './session-store';
 import { startOnboarding, onboardingText, registerOnboarding } from './onboarding';
 
@@ -157,11 +157,12 @@ export function buildBot(): Bot<Ctx> {
 
   bot.command('deposit', async (ctx) => {
     const account = await needClub(ctx); if (!account) return;
-    const platforms = await platformsFor(account.id);
-    if (platforms.length === 0) return ctx.reply('No platforms are set up yet — ask an admin to add one.');
+    const p = await player(ctx, account);
+    const platforms = await playerPlatformsFor(account.id, p.id);
+    if (platforms.length === 0) return ctx.reply('You don’t have an account on any platform yet. /start to set one up.');
     if (platforms.length === 1) return showDepositMethods(ctx, account, platforms[0]!.id);
     const kb = new InlineKeyboard();
-    for (const p of platforms) kb.text(p.name, `dp:${p.id}`).row();
+    for (const pf of platforms) kb.text(pf.name, `dp:${pf.id}`).row();
     await ctx.reply('Which account are you adding to?', { reply_markup: kb });
   });
 
@@ -204,11 +205,12 @@ export function buildBot(): Bot<Ctx> {
   // Cash-out flow, poker order: platform → amount → method → where to get paid.
   bot.command('withdraw', async (ctx) => {
     const account = await needClub(ctx); if (!account) return;
-    const platforms = await platformsFor(account.id);
-    if (platforms.length === 0) return ctx.reply('No platforms are set up yet — ask an admin.');
+    const p = await player(ctx, account);
+    const platforms = await playerPlatformsFor(account.id, p.id);
+    if (platforms.length === 0) return ctx.reply('You don’t have an account on any platform yet. /start to set one up.');
     if (platforms.length === 1) return askWithdrawAmount(ctx, account, platforms[0]!.id);
     const kb = new InlineKeyboard();
-    for (const p of platforms) kb.text(p.name, `wp:${p.id}`).row();
+    for (const pf of platforms) kb.text(pf.name, `wp:${pf.id}`).row();
     await ctx.reply('Where do you want to cash-out from?', { reply_markup: kb });
   });
   async function askWithdrawAmount(ctx: Ctx, account: Account, platformId: string) {

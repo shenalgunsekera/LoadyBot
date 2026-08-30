@@ -70,6 +70,16 @@ export function platformsFor(accountId: string): Promise<Platform[]> {
   return withAccount(accountId, (sql) => sql<Platform[]>`select id, name from platforms where enabled order by sort_order, name`);
 }
 
+/** The platforms THIS player actually has an account on (linked a username/ID to).
+ *  Deposit / withdraw offer only these — never a platform they never set up. */
+export function playerPlatformsFor(accountId: string, playerId: string): Promise<Platform[]> {
+  return withAccount(accountId, (sql) => sql<Platform[]>`
+    select pf.id, pf.name from platforms pf
+      join player_platforms pp on pp.platform_id = pf.id
+     where pp.player_id = ${playerId} and pf.enabled and pp.platform_uid is not null
+     order by pf.sort_order, pf.name`);
+}
+
 export function methodsFor(accountId: string, payout = false): Promise<Method[]> {
   return withAccount(accountId, (sql) =>
     payout
