@@ -4,7 +4,7 @@ import {
   accountForAdminUser, autoBindChat, markAdminChat,
   withAccount, isServiceable, botEnabled, storageConfigured, uploadReceipt, platformTotals, type Account,
 } from '@loady/core';
-import { money, parseAmount, resolvePlayer, platformsFor, methodsFor, adminChatFor, type Player } from './ui';
+import { money, whole, parseAmount, amountBounds, amountProblem, receiptInstruction, resolvePlayer, platformsFor, methodsFor, adminChatFor, type Player } from './ui';
 import { pgSessions } from './session-store';
 import { startOnboarding, onboardingText, registerOnboarding } from './onboarding';
 
@@ -188,37 +188,85 @@ export function buildBot(): Bot<Ctx> {
   });
   bot.callbackQuery(/^dm:(.+):(.+)$/, async (ctx) => {
     await ack(ctx);
-    if (!ctx.account) return;
-    ctx.session = { step: 'dep_amount', platformId: ctx.match![1]!, methodId: ctx.match![2]! };
-    await ctx.reply('How much would you like to add? *Reply* with the number, e.g. `50`.', { parse_mode: 'Markdown', reply_markup: { force_reply: true } }).catch(() => {});
+    const account = ctx.account; if (!account) return;
+    const platformId = ctx.match![1]!, methodId = ctx.match![2]!;
+    const [pf] = await withAccount(account.id, (sql) => sql<{ name: string }[]>`select name from platforms where id = ${platformId}`);
+    const b = await amountBounds(account.id, methodId);
+    ctx.session = { step: 'dep_amount', platformId, methodId };
+    await ctx.reply(
+      `How much do you want to add to *${pf?.name ?? 'your account'}*?\n\n` +
+      `Between ${whole(b.min)} and ${whole(b.max)}, in multiples of ${whole(b.step)}. ` +
+      `Just send the number, like \`20\` or \`50\`.\n\n/stop to cancel.`,
+      { parse_mode: 'Markdown', reply_markup: { force_reply: true } },
+    ).catch(() => {});
   });
 
+  // Cash-out flow, poker order: platform → amount → method → where to get paid.
   bot.command('withdraw', async (ctx) => {
     const account = await needClub(ctx); if (!account) return;
     const platforms = await platformsFor(account.id);
     if (platforms.length === 0) return ctx.reply('No platforms are set up yet — ask an admin.');
-    if (platforms.length === 1) return showWithdrawMethods(ctx, account, platforms[0]!.id);
+    if (platforms.length === 1) return askWithdrawAmount(ctx, account, platforms[0]!.id);
     const kb = new InlineKeyboard();
     for (const p of platforms) kb.text(p.name, `wp:${p.id}`).row();
-    await ctx.reply('Which account are you cashing out from?', { reply_markup: kb });
+    await ctx.reply('Where do you want to cash-out from?', { reply_markup: kb });
   });
-  async function showWithdrawMethods(ctx: Ctx, account: Account, platformId: string) {
+  async function askWithdrawAmount(ctx: Ctx, account: Account, platformId: string) {
+    const [pf] = await withAccount(account.id, (sql) => sql<{ name: string }[]>`select name from platforms where id = ${platformId}`);
+    const b = await amountBounds(account.id, undefined, true);
+    ctx.session = { step: 'wd_amount', platformId };
+    await ctx.reply(
+      `How much do you want to cash-out from *${pf?.name ?? 'your account'}*?\n\n` +
+      `Between ${whole(b.min)} and ${whole(b.max)}, in multiples of ${whole(b.step)}. Send the number, like \`50\`. ` +
+      `We'll take that much off your table if it's there.\n\n/stop to cancel.`,
+      { parse_mode: 'Markdown', reply_markup: { force_reply: true } },
+    );
+  }
+  // Amount is already in the session — show how to get paid.
+  async function showWithdrawMethods(ctx: Ctx, account: Account) {
     const methods = await methodsFor(account.id, true);
-    if (methods.length === 0) return ctx.reply('No cash-out methods are set up yet — ask an admin.');
+    if (methods.length === 0) { ctx.session = { step: 'idle' }; return ctx.reply('No cash-out methods are set up yet — ask an admin.'); }
+    if (methods.length === 1) return withdrawAfterMethod(ctx, account, methods[0]!.id);
+    ctx.session = { ...ctx.session, step: 'wd_method' };
     const kb = new InlineKeyboard();
-    for (const m of methods) kb.text(m.name, `wm:${platformId}:${m.id}`).row();
-    await ctx.reply('How would you like to get paid?', { reply_markup: kb });
+    for (const m of methods) kb.text(m.name, `wm:${m.id}`).row();
+    await ctx.reply(`Cashing out *${money(ctx.session.amount ?? 0)}* — how do you want to be paid?`, { parse_mode: 'Markdown', reply_markup: kb });
+  }
+  // Method chosen → reuse a saved destination if we have one, else ask for it.
+  async function withdrawAfterMethod(ctx: Ctx, account: Account, methodId: string) {
+    const { platformId, amount } = ctx.session;
+    if (!platformId || amount == null) { ctx.session = { step: 'idle' }; return ctx.reply('That expired — start again with /withdraw.'); }
+    const p = await player(ctx, account);
+    const savedHandle = await withAccount(account.id, async (sql) => {
+      const [w] = await sql<{ payout_handle: string }[]>`select payout_handle from withdraw_requests where player_id = ${p.id} and method_id = ${methodId} and payout_handle is not null order by created_at desc limit 1`;
+      if (w?.payout_handle) return w.payout_handle;
+      const [pref] = await sql<{ handle: string }[]>`select handle from player_payout_prefs where player_id = ${p.id} and method_id = ${methodId} limit 1`;
+      return pref?.handle ?? null;
+    });
+    if (savedHandle) return createWithdraw(ctx, account, platformId, methodId, amount, savedHandle, true);
+    ctx.session = { step: 'wd_handle', platformId, methodId, amount };
+    await ctx.reply('Where should we send it? *Reply* with your payout handle (e.g. your Venmo / Zelle / wallet). We\'ll remember it for next time.', { parse_mode: 'Markdown', reply_markup: { force_reply: true } });
+  }
+  async function createWithdraw(ctx: Ctx, account: Account, platformId: string, methodId: string, amount: number, handle: string, reused: boolean) {
+    const p = await player(ctx, account);
+    try {
+      const [w] = await withAccount(account.id, (sql) => sql<{ amount: number }[]>`
+        select amount from withdraw_create(${p.id}, ${platformId}, ${methodId}, ${amount}, ${handle})`);
+      ctx.session = { step: 'idle' };
+      await ctx.reply(reused
+        ? `✅ *Cash-out for ${money(w!.amount)} is in the queue* → paying your usual \`${handle}\`. Need it elsewhere? /cancelwithdraw and start again.`
+        : `✅ *Cash-out for ${money(w!.amount)} is in the queue.* We'll pay it to \`${handle}\` and message you here when it's done.`, { parse_mode: 'Markdown' });
+    } catch (e) { ctx.session = { step: 'idle' }; await ctx.reply(`❌ ${errText(e)}`); }
   }
   bot.callbackQuery(/^wp:(.+)$/, async (ctx) => {
     await ack(ctx);
     const account = ctx.account; if (!account) return;
-    await showWithdrawMethods(ctx, account, ctx.match![1]!);
+    await askWithdrawAmount(ctx, account, ctx.match![1]!);
   });
-  bot.callbackQuery(/^wm:(.+):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^wm:(.+)$/, async (ctx) => {
     await ack(ctx);
-    if (!ctx.account) return;
-    ctx.session = { step: 'wd_amount', platformId: ctx.match![1]!, methodId: ctx.match![2]! };
-    await ctx.reply('How much would you like to cash out? *Reply* with the number, e.g. `50`.', { parse_mode: 'Markdown', reply_markup: { force_reply: true } }).catch(() => {});
+    const account = ctx.account; if (!account) return;
+    await withdrawAfterMethod(ctx, account, ctx.match![1]!);
   });
 
   bot.command('canceldeposit', async (ctx) => {
@@ -518,19 +566,29 @@ export function buildBot(): Bot<Ctx> {
 
     if (s.step === 'dep_amount') {
       const amount = parseAmount(ctx.message.text);
-      if (amount == null) return ctx.reply('That doesn’t look like an amount. Try `50`.', { parse_mode: 'Markdown' });
+      if (amount == null) return ctx.reply('That doesn’t look like an amount. Try `20` or `50`.', { parse_mode: 'Markdown' });
+      const bad = amountProblem(amount, await amountBounds(account.id, s.methodId!));
+      if (bad) return ctx.reply(bad);
       const p = await player(ctx, account);
       try {
         const info = await withAccount(account.id, async (sql) => {
           const [d] = await sql<{ id: string }[]>`select id from deposit_create(${p.id}, ${s.platformId!}, ${s.methodId!}, ${amount})`;
-          const [f] = await sql<{ id: string; withdraw_id: string | null; payout_handle: string | null; club_handle: string | null }[]>`
-            select f.id, f.withdraw_id, f.payout_handle, pm.club_handle from fills f join payment_methods pm on pm.id = f.method_id
+          const [f] = await sql<{ id: string; withdraw_id: string | null; payout_handle: string | null; club_handle: string | null; code: string; method: string }[]>`
+            select f.id, f.withdraw_id, f.payout_handle, pm.club_handle, pm.code, pm.name as method
+              from fills f join payment_methods pm on pm.id = f.method_id
              where f.deposit_id = ${d!.id} order by seq limit 1`;
           return f!;
         });
         const handle = info.payout_handle ?? info.club_handle;
         ctx.session = { step: 'dep_receipt', fillId: info.id };
-        await ctx.reply(`💸 *Send ${money(amount)} now.*\n\n` + (handle ? `Pay to: \`${handle}\`\n\n` : `An admin will send you where to pay shortly.\n\n`) + `Once you’ve paid, send a *screenshot* here so we can confirm it and add your money.`, { parse_mode: 'Markdown' });
+        // The poker "send your payment now" card: exact amount, tap-to-copy handle,
+        // per-method warning + receipt instruction, and the cancel note.
+        const lines = [`*💸 Send your payment now*`, ``, `Send: *${money(amount)}*`];
+        lines.push(handle ? `Address: \`${handle}\`  _(tap to copy)_` : `_An admin will send you where to pay shortly._`);
+        if (info.code === 'paypal') lines.push(`\n⚠️ *Send as Friends & Family* (not Goods & Services).`);
+        lines.push(`\nOnce you’ve sent it, send ${receiptInstruction(info.code)} here so we can confirm it and add your money.`);
+        lines.push(`_Changed your mind? /canceldeposit before you pay._`);
+        await ctx.reply(lines.join('\n'), { parse_mode: 'Markdown' });
       } catch (e) { ctx.session = { step: 'idle' }; await ctx.reply(`❌ ${errText(e)}`); }
       return;
     }
@@ -544,27 +602,10 @@ export function buildBot(): Bot<Ctx> {
     if (s.step === 'wd_amount') {
       const amount = parseAmount(ctx.message.text);
       if (amount == null) return ctx.reply('That doesn’t look like an amount. Try `50`.', { parse_mode: 'Markdown' });
-      const p = await player(ctx, account);
-      // Reuse the handle they last used for this method — no re-typing (like Poker).
-      // Falls back to the destination they saved at setup (player_payout_prefs).
-      const savedHandle = await withAccount(account.id, async (sql) => {
-        const [w] = await sql<{ payout_handle: string }[]>`
-          select payout_handle from withdraw_requests where player_id = ${p.id} and method_id = ${s.methodId!} and payout_handle is not null order by created_at desc limit 1`;
-        if (w?.payout_handle) return w.payout_handle;
-        const [pref] = await sql<{ handle: string }[]>`select handle from player_payout_prefs where player_id = ${p.id} and method_id = ${s.methodId!} limit 1`;
-        return pref?.handle ?? null;
-      });
-      if (savedHandle) {
-        try {
-          const [w] = await withAccount(account.id, (sql) => sql<{ amount: number }[]>`
-            select amount from withdraw_create(${p.id}, ${s.platformId!}, ${s.methodId!}, ${amount}, ${savedHandle})`);
-          ctx.session = { step: 'idle' };
-          await ctx.reply(`✅ *Cash-out for ${money(w!.amount)} is in the queue* → paying your usual \`${savedHandle}\`. Need it elsewhere? /cancelwithdraw and start again.`, { parse_mode: 'Markdown' });
-        } catch (e) { ctx.session = { step: 'idle' }; await ctx.reply(`❌ ${errText(e)}`); }
-        return;
-      }
-      ctx.session = { ...s, step: 'wd_handle', amount };
-      return ctx.reply('Where should we send it? *Reply* with your payout handle (e.g. your Venmo / Zelle / wallet).', { parse_mode: 'Markdown', reply_markup: { force_reply: true } });
+      const bad = amountProblem(amount, await amountBounds(account.id, undefined, true));
+      if (bad) return ctx.reply(bad);
+      ctx.session = { ...s, step: 'wd_method', amount };
+      return showWithdrawMethods(ctx, account);
     }
     if (s.step === 'support_msg') {
       const p = await player(ctx, account);
@@ -589,14 +630,7 @@ export function buildBot(): Bot<Ctx> {
     }
     if (s.step === 'wd_handle') {
       const handle = ctx.message.text.trim();
-      const p = await player(ctx, account);
-      try {
-        const [w] = await withAccount(account.id, (sql) => sql<{ id: string; amount: number }[]>`
-          select id, amount from withdraw_create(${p.id}, ${s.platformId!}, ${s.methodId!}, ${s.amount!}, ${handle})`);
-        ctx.session = { step: 'idle' };
-        await ctx.reply(`✅ *Cash-out for ${money(w!.amount)} is in the queue.* We’ll pay it to \`${handle}\` and message you here when it’s done.`, { parse_mode: 'Markdown' });
-      } catch (e) { ctx.session = { step: 'idle' }; await ctx.reply(`❌ ${errText(e)}`); }
-      return;
+      return createWithdraw(ctx, account, s.platformId!, s.methodId!, s.amount!, handle, false);
     }
     return next();
   });
