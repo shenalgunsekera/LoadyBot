@@ -58,6 +58,39 @@ export function buildBot(): Bot<Ctx> {
     storage: pgSessions<SessionData>(),
   }));
 
+  // Resolve which club this chat belongs to BEFORE any command runs — otherwise
+  // /start (and everything else) sees ctx.account = undefined and falls through to
+  // the "open your club's link" fallback even in a properly connected chat.
+  bot.use(async (ctx, next) => {
+    if (ctx.chat) {
+      let account = await accountForChat('telegram', String(ctx.chat.id));
+      // Lazy fallback: bot was already in the chat before it was linked. The first
+      // message from a linked admin binds it (covers a missed my_chat_member event).
+      // Gated on ctx.message so the my_chat_member handler still owns the "added"
+      // flow (its "Please do /start" prompt), not this middleware.
+      if (!account && ctx.message && ctx.from && ctx.chat.type !== 'private') {
+        const adminAcc = await accountForAdminUser('telegram', String(ctx.from.id));
+        if (adminAcc && botEnabled(adminAcc, 'telegram')) {
+          const res = await autoBindChat(adminAcc.id, 'telegram', String(ctx.chat.id), ctx.chat.title ?? null);
+          if (res !== 'taken') account = adminAcc;
+          if (res === 'new') await ctx.reply(`✅ Connected this chat to *${adminAcc.name}*.`, { parse_mode: 'Markdown' }).catch(() => {});
+        }
+      }
+      if (account) {
+        if (!botEnabled(account, 'telegram')) {
+          if (ctx.message?.text?.startsWith('/')) {
+            await ctx.reply(isServiceable(account.status)
+              ? 'Telegram isn’t switched on for your club. Ask your Loady operator to enable it.'
+              : 'This club is paused right now. An owner needs to sort out billing on the Loady dashboard.');
+          }
+          return;
+        }
+        ctx.account = account;
+      }
+    }
+    await next();
+  });
+
   bot.command('start', async (ctx) => {
     const arg = (ctx.match ?? '').trim();
     if (arg && ctx.chat?.type === 'private') {
@@ -100,34 +133,6 @@ export function buildBot(): Bot<Ctx> {
       // Exactly like the poker bot: prompt for /start rather than auto-firing setup.
       await ctx.reply('👋 Added. Please do /start to set up your account.').catch(() => {});
     }
-  });
-
-  bot.use(async (ctx, next) => {
-    if (ctx.chat) {
-      let account = await accountForChat('telegram', String(ctx.chat.id));
-      // Lazy fallback: bot was already in the chat before it was linked. The first
-      // message from a linked admin binds it (covers a missed my_chat_member event).
-      if (!account && ctx.from && ctx.chat.type !== 'private') {
-        const adminAcc = await accountForAdminUser('telegram', String(ctx.from.id));
-        if (adminAcc && botEnabled(adminAcc, 'telegram')) {
-          const res = await autoBindChat(adminAcc.id, 'telegram', String(ctx.chat.id), ctx.chat.title ?? null);
-          if (res !== 'taken') account = adminAcc;
-          if (res === 'new') await ctx.reply(`✅ Connected this chat to *${adminAcc.name}*.`, { parse_mode: 'Markdown' }).catch(() => {});
-        }
-      }
-      if (account) {
-        if (!botEnabled(account, 'telegram')) {
-          if (ctx.message?.text?.startsWith('/')) {
-            await ctx.reply(isServiceable(account.status)
-              ? 'Telegram isn’t switched on for your club. Ask your Loady operator to enable it.'
-              : 'This club is paused right now. An owner needs to sort out billing on the Loady dashboard.');
-          }
-          return;
-        }
-        ctx.account = account;
-      }
-    }
-    await next();
   });
 
   const needClub = async (ctx: Ctx): Promise<Account | null> => {
