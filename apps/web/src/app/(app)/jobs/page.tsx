@@ -5,9 +5,17 @@ import { markLoaded, markUnloaded } from './actions';
 
 export const dynamic = 'force-dynamic';
 const money = (c: number) => `$${(Number(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function ago(at: Date | string | null): string {
+  if (!at) return '—';
+  const s = Math.max(0, Math.floor((Date.now() - new Date(at).getTime()) / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
 
-interface Load { id: string; credit: number; amount: number; name: string | null; platform: string | null; uid: string | null; }
-interface Unload { id: string; amount: number; name: string | null; platform: string | null; uid: string | null; }
+interface Load { id: string; credit: number; amount: number; name: string | null; platform: string | null; uid: string | null; at: Date | null; }
+interface Unload { id: string; amount: number; name: string | null; platform: string | null; uid: string | null; at: Date | null; }
 
 export default async function Jobs() {
   const ctx = await getCtx();
@@ -16,7 +24,7 @@ export default async function Jobs() {
   const { loads, unloads } = await withAccount(ctx.accountId, async (sql) => {
     const loads = await sql<Load[]>`
       select f.id, f.credit_amount as credit, f.amount, dp.display_name as name,
-             pf.name as platform, pp.platform_uid as uid
+             pf.name as platform, pp.platform_uid as uid, f.released_at as at
         from fills f
         join deposit_requests d on d.id = f.deposit_id
         left join players dp on dp.id = d.player_id
@@ -25,7 +33,7 @@ export default async function Jobs() {
        where f.status = 'released' and f.deposit_id is not null and f.loaded_at is null
        order by f.released_at limit 200`;
     const unloads = await sql<Unload[]>`
-      select w.id, w.amount, dp.display_name as name, pf.name as platform, pp.platform_uid as uid
+      select w.id, w.amount, dp.display_name as name, pf.name as platform, pp.platform_uid as uid, w.created_at as at
         from withdraw_requests w
         left join players dp on dp.id = w.player_id
         left join platforms pf on pf.id = w.platform_id
@@ -46,16 +54,17 @@ export default async function Jobs() {
         <h3 style={{ marginBottom: 12 }}>⬇︎ Load chips ({loads.length})</h3>
         <div className="table-wrap">
           <table>
-            <thead><tr><th className="num" style={{ width: 90 }}>Add</th><th>Player</th><th>Where</th><th className="mono">Account ID</th><th style={{ width: 130 }} /></tr></thead>
+            <thead><tr><th className="num" style={{ width: 90 }}>Add</th><th>Player</th><th>Where</th><th className="mono">Account ID</th><th style={{ width: 60 }}>Age</th><th style={{ width: 130 }} /></tr></thead>
             <tbody>
               {loads.length === 0 ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: 28 }}>Nothing to load. 🎉</td></tr>
+                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: 28 }}>Nothing to load. 🎉</td></tr>
               ) : loads.map((j) => (
                 <tr key={j.id}>
                   <td className="num mono" style={{ fontWeight: 600, color: 'var(--ok)' }}>+{money(Number(j.credit ?? j.amount))}</td>
                   <td style={{ fontWeight: 600 }}>{j.name ?? '—'}</td>
                   <td><span className="badge muted">{j.platform ?? '—'}</span></td>
                   <td className="mono" style={{ fontSize: 12 }}>{j.uid ?? <span className="dim">not linked</span>}</td>
+                  <td className="mono" style={{ fontSize: 12 }}>{ago(j.at)}</td>
                   <td><form action={markLoaded}><input type="hidden" name="id" value={j.id} /><button className="btn btn-primary btn-sm" type="submit">✅ Loaded</button></form></td>
                 </tr>
               ))}
@@ -68,16 +77,17 @@ export default async function Jobs() {
         <h3 style={{ marginBottom: 12 }}>⬆︎ Take off chips ({unloads.length})</h3>
         <div className="table-wrap">
           <table>
-            <thead><tr><th className="num" style={{ width: 90 }}>Remove</th><th>Player</th><th>Where</th><th className="mono">Account ID</th><th style={{ width: 130 }} /></tr></thead>
+            <thead><tr><th className="num" style={{ width: 90 }}>Remove</th><th>Player</th><th>Where</th><th className="mono">Account ID</th><th style={{ width: 60 }}>Age</th><th style={{ width: 130 }} /></tr></thead>
             <tbody>
               {unloads.length === 0 ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: 28 }}>Nothing to take off. 🎉</td></tr>
+                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: 28 }}>Nothing to take off. 🎉</td></tr>
               ) : unloads.map((j) => (
                 <tr key={j.id}>
                   <td className="num mono" style={{ fontWeight: 600, color: 'var(--warn)' }}>−{money(Number(j.amount))}</td>
                   <td style={{ fontWeight: 600 }}>{j.name ?? '—'}</td>
                   <td><span className="badge muted">{j.platform ?? '—'}</span></td>
                   <td className="mono" style={{ fontSize: 12 }}>{j.uid ?? <span className="dim">not linked</span>}</td>
+                  <td className="mono" style={{ fontSize: 12 }}>{ago(j.at)}</td>
                   <td><form action={markUnloaded}><input type="hidden" name="id" value={j.id} /><button className="btn btn-dark btn-sm" type="submit">✅ Taken off</button></form></td>
                 </tr>
               ))}
