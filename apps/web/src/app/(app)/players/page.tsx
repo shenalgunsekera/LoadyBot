@@ -1,7 +1,8 @@
 import { withAccount } from '@loady/core';
 import { getCtx } from '@/lib/session';
 import { redirect } from 'next/navigation';
-import { setHold, setFlag, editPlayer } from './actions';
+import { setHold, setFlag } from './actions';
+import { RowActions } from './row-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,7 +55,7 @@ export default async function Players({ searchParams }: { searchParams: Promise<
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Player</th><th>Game accounts</th><th className="num" style={{ textAlign: 'right' }}>Deposited</th><th className="num" style={{ textAlign: 'right' }}>Owed</th><th style={{ width: 90 }}>Status</th><th style={{ width: 260 }} /></tr>
+            <tr><th>Player</th><th>Game accounts</th><th className="num" style={{ textAlign: 'right' }}>Deposited</th><th className="num" style={{ textAlign: 'right' }}>Owed</th><th style={{ width: 90 }}>Status</th><th style={{ width: 320 }} /></tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
@@ -96,22 +97,11 @@ export default async function Players({ searchParams }: { searchParams: Promise<
                       <input type="hidden" name="flag" value={p.flagged ? '0' : '1'} />
                       <button className="btn btn-sm" type="submit">{p.flagged ? 'Clear flag' : 'Flag'}</button>
                     </form>
-                    <details className="row-edit" style={{ position: 'relative' }}>
-                      <summary className="btn btn-sm" style={{ listStyle: 'none', cursor: 'pointer' }}>Edit</summary>
-                      <form action={editPlayer} style={{ position: 'absolute', zIndex: 10, marginTop: 6, right: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 14, width: 260, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        <input type="hidden" name="id" value={p.id} />
-                        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Display name
-                          <input name="name" defaultValue={p.display_name ?? ''} style={{ width: '100%', height: 34, marginTop: 4 }} />
-                        </label>
-                        {p.accounts[0] && (
-                          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{p.accounts[0].platform} ID
-                            <input type="hidden" name="platformId" value={p.accounts[0].platformId} />
-                            <input name="uid" defaultValue={p.accounts[0].uid} className="mono" style={{ width: '100%', height: 34, marginTop: 4 }} />
-                          </label>
-                        )}
-                        <button className="btn btn-primary btn-sm" type="submit">Save</button>
-                      </form>
-                    </details>
+                    <RowActions
+                      id={p.id}
+                      name={p.display_name ?? p.username ?? 'player'}
+                      account={p.accounts[0] ? { platformId: p.accounts[0].platformId, platform: p.accounts[0].platform, uid: p.accounts[0].uid } : null}
+                    />
                   </div>
                 </td>
               </tr>

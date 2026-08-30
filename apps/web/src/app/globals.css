@@ -293,3 +293,16 @@ tr:last-child td { border-bottom: none; }
 .flow-tip-row { display: flex; align-items: center; gap: 6px; color: var(--ink-dim); }
 .flow-tip-row strong { color: var(--ink); margin-left: auto; padding-left: 10px; }
 .dash-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; vertical-align: middle; margin-right: 3px; }
+
+/* Danger button + modal dialogs (Players page: delete / edit) */
+.btn-danger { background: var(--red); color: #fff; border-color: transparent; }
+.btn-danger:hover { background: #cf3b40; }
+.btn-danger:disabled { opacity: .5; cursor: not-allowed; }
+.dlg {
+  border: 1px solid var(--border); border-radius: var(--r-lg); padding: 20px;
+  background: var(--surface); color: var(--ink); box-shadow: var(--shadow-lg);
+  max-width: 92vw;
+}
+.dlg::backdrop { background: rgba(13,27,46,.38); backdrop-filter: blur(1px); }
+.dlg-label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; }
+.dlg-label input { font-size: 14px; }

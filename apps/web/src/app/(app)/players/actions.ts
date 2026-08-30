@@ -45,3 +45,22 @@ export async function editPlayer(form: FormData) {
   });
   revalidatePath('/players');
 }
+
+/** Permanently erase a player and all their data. Refused (with a clear message)
+ *  for anyone who has real ledger history — the books are append-only. */
+export async function deletePlayer(id: string): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await getCtx();
+  if (!ctx) return { ok: false, error: 'Not signed in.' };
+  if (!id) return { ok: false, error: 'No player.' };
+  try {
+    await withAccount(ctx.accountId, (sql) => sql`select player_delete(${id})`);
+  } catch (e) {
+    const msg = (e as { message?: string })?.message ?? '';
+    if (/foreign key|violates|still referenced/i.test(msg)) {
+      return { ok: false, error: 'This player has money history and can’t be fully erased. Put them on hold instead.' };
+    }
+    return { ok: false, error: msg.replace(/^error:\s*/i, '') || 'Could not delete.' };
+  }
+  revalidatePath('/players');
+  return { ok: true };
+}
