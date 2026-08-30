@@ -9,7 +9,7 @@ import {
   loadRootEnv, accountForChat, redeemConnectCode, redeemLinkCode, isAccountAdmin,
   withAccount, isServiceable, type Account,
 } from '@loady/core';
-import { money, resolvePlayer, platformsFor, methodsFor } from './ui';
+import { money, whole, amountBounds, amountProblem, receiptInstruction, savedPayoutHandle, resolvePlayer, platformsFor, methodsFor } from './ui';
 import { registerCommands } from './register-commands';
 
 loadRootEnv();
@@ -99,19 +99,30 @@ async function onSelect(i: StringSelectMenuInteraction) {
   if (i.customId === 'wp') return sendMethods(i, account, value, 'w', true);
 
   const [kind, platformId] = i.customId.split('|');    // 'dm'|'wm'
-  if (kind === 'dm') return i.showModal(amountModal(`da|${platformId}|${value}`, 'How much to add?'));
-  if (kind === 'wm') return i.showModal(withdrawModal(`wa|${platformId}|${value}`));
+  if (kind === 'dm') {
+    const b = await amountBounds(account.id, value);
+    return i.showModal(amountModal(`da|${platformId}|${value}`, 'How much to add?', `Amount (${whole(b.min)}–${whole(b.max)}, x${whole(b.step)})`));
+  }
+  if (kind === 'wm') {
+    const b = await amountBounds(account.id, value);
+    const label = `Amount (${whole(b.min)}–${whole(b.max)}, x${whole(b.step)})`;
+    // Reuse a saved cash-out destination — then we only need the amount.
+    const player = await resolvePlayer(account.id, i.user.id, i.user.username, i.channelId ?? '');
+    const saved = await savedPayoutHandle(account.id, player.id, value);
+    if (saved) return i.showModal(amountModal(`ws|${platformId}|${value}`, 'Cash out', label));
+    return i.showModal(withdrawModal(`wa|${platformId}|${value}`, label));
+  }
 }
 
-function amountModal(id: string, title: string) {
+function amountModal(id: string, title: string, label = 'Amount (e.g. 50)') {
   return new ModalBuilder().setCustomId(id).setTitle(title).addComponents(
     new ActionRowBuilder<TextInputBuilder>().addComponents(
-      new TextInputBuilder().setCustomId('amount').setLabel('Amount (e.g. 50)').setStyle(TextInputStyle.Short).setRequired(true)));
+      new TextInputBuilder().setCustomId('amount').setLabel(label.slice(0, 45)).setStyle(TextInputStyle.Short).setRequired(true)));
 }
-function withdrawModal(id: string) {
+function withdrawModal(id: string, label = 'Amount (e.g. 50)') {
   return new ModalBuilder().setCustomId(id).setTitle('Cash out').addComponents(
     new ActionRowBuilder<TextInputBuilder>().addComponents(
-      new TextInputBuilder().setCustomId('amount').setLabel('Amount (e.g. 50)').setStyle(TextInputStyle.Short).setRequired(true)),
+      new TextInputBuilder().setCustomId('amount').setLabel(label.slice(0, 45)).setStyle(TextInputStyle.Short).setRequired(true)),
     new ActionRowBuilder<TextInputBuilder>().addComponents(
       new TextInputBuilder().setCustomId('handle').setLabel('Where to send it (your payout handle)').setStyle(TextInputStyle.Short).setRequired(true)));
 }
@@ -122,24 +133,37 @@ async function onModal(i: ModalSubmitInteraction) {
   const [kind, platformId, methodId] = i.customId.split('|');
   const amount = Math.round(parseFloat(i.fields.getTextInputValue('amount').replace(/[$,\s]/g, '')) * 100);
   if (!Number.isFinite(amount) || amount <= 0) return i.reply({ content: 'That doesn’t look like an amount.', flags: EPH });
+  const bad = amountProblem(amount, await amountBounds(account.id, methodId!, kind !== 'da'));
+  if (bad) return i.reply({ content: `❌ ${bad}`, flags: EPH });
   const player = await resolvePlayer(account.id, i.user.id, i.user.username, i.channelId ?? '');
 
   try {
     if (kind === 'da') {
       const info = await withAccount(account.id, async (sql) => {
         const [d] = await sql<{ id: string }[]>`select id from deposit_create(${player.id}, ${platformId!}, ${methodId!}, ${amount})`;
-        const [f] = await sql<{ id: string; payout_handle: string | null; club_handle: string | null }[]>`
-          select f.id, f.payout_handle, pm.club_handle from fills f join payment_methods pm on pm.id = f.method_id
+        const [f] = await sql<{ id: string; payout_handle: string | null; club_handle: string | null; code: string }[]>`
+          select f.id, f.payout_handle, pm.club_handle, pm.code from fills f join payment_methods pm on pm.id = f.method_id
            where f.deposit_id = ${d!.id} order by seq limit 1`;
         return f!;
       });
       const handle = info.payout_handle ?? info.club_handle;
-      return i.reply({ content: `💸 **Send ${money(amount)} now.**\n${handle ? `Pay to: \`${handle}\`\n` : 'An admin will send you where to pay shortly.\n'}\nThen **post a screenshot in this channel** so we can confirm it.`, flags: EPH });
+      // The poker "send your payment now" card.
+      const lines = [`**💸 Send your payment now**`, ``, `Send: **${money(amount)}**`];
+      lines.push(handle ? `Address: \`${handle}\`` : `_An admin will send you where to pay shortly._`);
+      if (info.code === 'paypal') lines.push(`\n⚠️ **Send as Friends & Family** (not Goods & Services).`);
+      lines.push(`\nOnce you’ve sent it, **post ${receiptInstruction(info.code)} in this channel** so we can confirm it.`);
+      return i.reply({ content: lines.join('\n'), flags: EPH });
     }
-    if (kind === 'wa') {
-      const handle = i.fields.getTextInputValue('handle').trim();
+    if (kind === 'wa' || kind === 'ws') {
+      // 'ws' reuses the saved destination (no handle field); 'wa' typed a new one.
+      const handle = kind === 'ws'
+        ? (await savedPayoutHandle(account.id, player.id, methodId!)) ?? ''
+        : i.fields.getTextInputValue('handle').trim();
+      if (!handle) return i.reply({ content: '❌ We couldn’t find a saved destination — try /withdraw again.', flags: EPH });
       const [w] = await withAccount(account.id, (sql) => sql<{ amount: number }[]>`select amount from withdraw_create(${player.id}, ${platformId!}, ${methodId!}, ${amount}, ${handle})`);
-      return i.reply({ content: `✅ **Cash-out for ${money(w!.amount)} is in the queue.** We’ll pay \`${handle}\` and message you when it’s done.`, flags: EPH });
+      return i.reply({ content: kind === 'ws'
+        ? `✅ **Cash-out for ${money(w!.amount)} is in the queue** → paying your usual \`${handle}\`.`
+        : `✅ **Cash-out for ${money(w!.amount)} is in the queue.** We’ll pay \`${handle}\` and message you when it’s done.`, flags: EPH });
     }
   } catch (e) {
     return i.reply({ content: `❌ ${err(e)}`, flags: EPH });

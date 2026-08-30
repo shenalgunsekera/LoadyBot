@@ -277,18 +277,48 @@ export function buildBot(): Bot<Ctx> {
     await ctx.reply(d ? '✅ Your deposit was cancelled.' : 'You don’t have an unpaid deposit to cancel. Start one with /deposit.');
   });
 
+  // /cancelwithdraw — poker style: one cash-out → offer Cancel-all / Cancel-part;
+  // several → pick which first.
+  const offerCancelOptions = async (ctx: Ctx, account: Account, w: { id: string; amount_remaining: number }) => {
+    const kb = new InlineKeyboard()
+      .text(`✖️ Cancel it all (${money(w.amount_remaining)})`, `wcfull:${w.id}`).row()
+      .text('➖ Cancel part of it', `wcpart:${w.id}`);
+    await ctx.reply(`Cancel this cash-out? *${money(w.amount_remaining)}* can be cancelled.\n_Anything you cancel goes back onto your table._`, { parse_mode: 'Markdown', reply_markup: kb });
+  };
   bot.command('cancelwithdraw', async (ctx) => {
     const account = await needClub(ctx); if (!account) return;
     const p = await player(ctx, account);
+    const outs = await withAccount(account.id, (sql) => sql<{ id: string; amount_remaining: number; method: string | null }[]>`
+      select w.id, w.amount_remaining, pm.name as method from withdraw_requests w left join payment_methods pm on pm.id = w.method_id
+       where w.player_id = ${p.id} and w.status in ('queued','partially_filled') and w.amount_remaining > 0 order by w.created_at desc`);
+    if (outs.length === 0) return ctx.reply('You don’t have a cash-out to cancel. (Anything already being paid can’t be cancelled — use /support if you need help.)');
+    if (outs.length === 1) return offerCancelOptions(ctx, account, outs[0]!);
+    const kb = new InlineKeyboard();
+    for (const o of outs) kb.text(`${money(o.amount_remaining)} via ${o.method ?? 'payment'}`, `wcpick:${o.id}`).row();
+    await ctx.reply('Which cash-out do you want to cancel?', { reply_markup: kb });
+  });
+  bot.callbackQuery(/^wcpick:(.+)$/, async (ctx) => {
+    await ack(ctx);
+    const account = ctx.account; if (!account) return;
+    const [w] = await withAccount(account.id, (sql) => sql<{ id: string; amount_remaining: number }[]>`select id, amount_remaining from withdraw_requests where id = ${ctx.match![1]!}`);
+    try { await ctx.editMessageReplyMarkup(); } catch { /* gone */ }
+    if (w) await offerCancelOptions(ctx, account, w);
+  });
+  bot.callbackQuery(/^wcfull:(.+)$/, async (ctx) => {
+    await ack(ctx);
+    const account = ctx.account; if (!account) return;
     try {
-      const done = await withAccount(account.id, async (sql) => {
-        const [w] = await sql<{ id: string }[]>`select id from withdraw_requests where player_id = ${p.id} and status in ('queued','partially_filled') order by created_at desc limit 1`;
-        if (!w) return false;
-        await sql`select withdraw_cancel(${w.id})`;
-        return true;
-      });
-      await ctx.reply(done ? '✅ Your cash-out was cancelled and the funds returned to your account.' : 'You don’t have a cash-out waiting to cancel.');
+      const [w] = await withAccount(account.id, (sql) => sql<{ amount: number }[]>`select amount from withdraw_cancel(${ctx.match![1]!})`);
+      try { await ctx.editMessageReplyMarkup(); } catch { /* gone */ }
+      await ctx.reply(`✅ Cancelled — *${money(w?.amount ?? 0)}* is going back onto your table.`, { parse_mode: 'Markdown' });
     } catch (e) { await ctx.reply(`❌ ${errText(e)}`); }
+  });
+  bot.callbackQuery(/^wcpart:(.+)$/, async (ctx) => {
+    await ack(ctx);
+    if (!ctx.account) return;
+    ctx.session = { step: 'wc_amount', withdrawId: ctx.match![1]! };
+    try { await ctx.editMessageReplyMarkup(); } catch { /* gone */ }
+    await ctx.reply('How much do you want to take back onto your table? Send the number, e.g. `20`.', { parse_mode: 'Markdown', reply_markup: { force_reply: true } });
   });
 
   bot.command('pending', async (ctx) => {
@@ -631,6 +661,16 @@ export function buildBot(): Bot<Ctx> {
     if (s.step === 'wd_handle') {
       const handle = ctx.message.text.trim();
       return createWithdraw(ctx, account, s.platformId!, s.methodId!, s.amount!, handle, false);
+    }
+    if (s.step === 'wc_amount') {
+      const amount = parseAmount(ctx.message.text);
+      if (amount == null || amount <= 0) return ctx.reply('Send just the number, e.g. `20`.', { parse_mode: 'Markdown' });
+      try {
+        const [w] = await withAccount(account.id, (sql) => sql<{ amount: number }[]>`select amount from withdraw_reduce(${s.withdrawId!}, ${amount})`);
+        ctx.session = { step: 'idle' };
+        await ctx.reply(`✅ *${money(amount)}* is coming back onto your table. Your cash-out is now *${money(w?.amount ?? 0)}* and keeps its place in line.`, { parse_mode: 'Markdown' });
+      } catch (e) { ctx.session = { step: 'idle' }; await ctx.reply(`❌ ${errText(e)}`); }
+      return;
     }
     return next();
   });
