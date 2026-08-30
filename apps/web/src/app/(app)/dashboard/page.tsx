@@ -7,7 +7,12 @@ import { FlowChart, FlowStats, type Bucket } from '@/components/flow-chart';
 
 export const dynamic = 'force-dynamic';
 
-const money = (c: number) => `$${(Number(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = (c: number) => {
+  const dollars = Number(c) / 100;
+  // Kill "-0.00": negative zero (and any sub-cent negative) formats with a minus.
+  const safe = Math.abs(dollars) < 0.005 ? 0 : dollars;
+  return `$${safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
 
 export default async function Overview({ searchParams }: { searchParams: Promise<{ flow?: string }> }) {
   const ctx = await getCtx();
