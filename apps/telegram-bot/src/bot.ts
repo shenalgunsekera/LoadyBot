@@ -6,8 +6,10 @@ import {
 } from '@loady/core';
 import { money, parseAmount, resolvePlayer, platformsFor, methodsFor, adminChatFor, type Player } from './ui';
 import { pgSessions } from './session-store';
+import { startOnboarding, onboardingText, registerOnboarding } from './onboarding';
 
-interface SessionData { step: string; platformId?: string; methodId?: string; amount?: number; fillId?: string; withdrawId?: string; ob?: { idx: number } }
+interface ObState { idx?: number; platforms?: string[]; depSel?: string[]; wdSel?: string[]; wdQueue?: string[]; wdAsked?: boolean; cgId?: string }
+interface SessionData { step: string; platformId?: string; methodId?: string; amount?: number; fillId?: string; withdrawId?: string; wdHandle?: string; ob?: ObState }
 export type Ctx = Context & SessionFlavor<SessionData> & { account?: Account; player?: Player };
 
 const errText = (e: unknown) => ((e as { message?: string })?.message ?? String(e)).replace(/^error:\s*/i, '');
@@ -62,10 +64,10 @@ export function buildBot(): Bot<Ctx> {
       const account = await accountByJoinToken(arg);
       if (account) {
         await resolvePlayer(account.id, String(ctx.from!.id), ctx.from?.username ?? null, String(ctx.chat.id));
-        return welcome(ctx, account);
+        return startOnboarding(ctx, account);
       }
     }
-    if (ctx.account) return welcome(ctx, ctx.account); // connected chat → same onboarding flow
+    if (ctx.account) return startOnboarding(ctx, ctx.account); // connected chat → same onboarding flow
     await ctx.reply('👋 Welcome to Loady. Open your club’s link to get started, or ask an admin to add me to your club chat.');
   });
 
@@ -95,7 +97,8 @@ export function buildBot(): Bot<Ctx> {
     const res = await autoBindChat(acc.id, 'telegram', String(ctx.chat.id), ctx.chat.title ?? null);
     if (res === 'new') {
       ctx.account = acc;
-      await welcome(ctx, acc).catch(() => {}); // kick off the onboarding flow, like Poker
+      // Exactly like the poker bot: prompt for /start rather than auto-firing setup.
+      await ctx.reply('👋 Added. Please do /start to set up your account.').catch(() => {});
     }
   });
 
@@ -135,49 +138,9 @@ export function buildBot(): Bot<Ctx> {
   const player = (ctx: Ctx, account: Account) => resolvePlayer(account.id, String(ctx.from!.id), ctx.from?.username ?? null, String(ctx.chat!.id));
 
   // ── Guided onboarding, Poker-style ────────────────────────────────────────
-  // A single sequence collects everything before the first move: name → for each
-  // platform the club offers, "do you play here?" → username → club → done. Runs
-  // in the same chat; each answer is a force_reply so Group Privacy can't eat it.
-  const FR = { reply_markup: { force_reply: true as const }, parse_mode: 'Markdown' as const };
-
-  const welcome = async (ctx: Ctx, account: Account) => {
-    ctx.session = { step: 'ob_name', ob: { idx: 0 } };
-    await ctx.reply(
-      `👋 *Welcome to ${account.name}!*\n\nLet's get you set up — takes a minute, then you can /deposit and /withdraw.\n\n` +
-      `First — what *name* do you go by? *Reply* to this message with it.`,
-      FR,
-    );
-  };
-
-  const obFinish = async (ctx: Ctx, _account: Account) => {
-    ctx.session = { step: 'idle' };
-    await ctx.reply(
-      `✅ *You're all set!*\n\n💸 /deposit — add funds\n🏦 /withdraw — cash out\n📋 /pending · 🧾 /deposithistory · /withdrawalhistory\n❓ /guide anytime.`,
-      { parse_mode: 'Markdown' },
-    );
-  };
-
-  // Ask about platform #idx. With ONE platform there's nothing to choose — go
-  // straight to the username. With several, ask Yes/Skip. Finishes past the last.
-  const askPlatform = async (ctx: Ctx, account: Account, idx: number) => {
-    const platforms = await platformsFor(account.id);
-    if (idx >= platforms.length) return obFinish(ctx, account);
-    const pf = platforms[idx]!;
-    if (platforms.length === 1) {
-      ctx.session = { step: 'ob_uid', platformId: pf.id, ob: { idx } };
-      return ctx.reply(`What's your *${pf.name}* username / ID? *Reply* with it.`, FR);
-    }
-    ctx.session = { step: 'ob_ask', platformId: pf.id, ob: { idx } };
-    const kb = new InlineKeyboard().text('✅ Yes', `oby:${idx}`).text('Skip', `obn:${idx}`);
-    await ctx.reply(`Do you play on *${pf.name}*?`, { parse_mode: 'Markdown', reply_markup: kb });
-  };
-
-  const showObClubs = async (ctx: Ctx, clubs: { id: string; name: string }[]) => {
-    const kb = new InlineKeyboard();
-    for (const c of clubs) kb.text(c.name, `obc:${c.id}`).row();
-    await ctx.reply('Which club do you play in?', { reply_markup: kb });
-  };
-
+  // The full poker setup sequence lives in ./onboarding: name → platform(s) →
+  // account IDs → club → deposit methods → cash-out method + handle → done. Runs
+  // in the same chat; every prompt is a force_reply so Group Privacy can't eat it.
   const acctFromCtx = async (ctx: Ctx): Promise<Account | null> =>
     ctx.account ?? (ctx.chat ? await accountForChat('telegram', String(ctx.chat.id)) : null);
 
@@ -185,33 +148,7 @@ export function buildBot(): Bot<Ctx> {
   // expire during a cold start, and letting that bubble up 500s the webhook and
   // strands the button ("stuck on Yes").
   const ack = (ctx: Ctx, opts?: Parameters<Ctx['answerCallbackQuery']>[0]) => ctx.answerCallbackQuery(opts).catch(() => {});
-  bot.callbackQuery(/^oby:(\d+)$/, async (ctx) => {
-    await ack(ctx);
-    const account = await acctFromCtx(ctx); if (!account) return;
-    ctx.account = account;
-    const idx = Number(ctx.match![1]);
-    const platforms = await platformsFor(account.id);
-    const pf = platforms[idx];
-    if (!pf) return obFinish(ctx, account);
-    ctx.session = { step: 'ob_uid', platformId: pf.id, ob: { idx } };
-    await ctx.reply(`Your username / ID on *${pf.name}*? *Reply* with it.`, FR).catch(() => {});
-  });
-  bot.callbackQuery(/^obn:(\d+)$/, async (ctx) => {
-    await ack(ctx);
-    const account = await acctFromCtx(ctx); if (!account) return;
-    ctx.account = account;
-    await askPlatform(ctx, account, Number(ctx.match![1]) + 1);
-  });
-  bot.callbackQuery(/^obc:(.+)$/, async (ctx) => {
-    await ack(ctx, { text: 'Saved ✓' });
-    const account = await acctFromCtx(ctx); if (!account) return;
-    ctx.account = account;
-    const p = await player(ctx, account);
-    const idx = ctx.session.ob?.idx ?? 0;
-    const platformId = ctx.session.platformId!;
-    await withAccount(account.id, (sql) => sql`select player_set_club(${p.id}, ${platformId}, ${ctx.match![1]!})`);
-    await askPlatform(ctx, account, idx + 1);
-  });
+  registerOnboarding(bot, acctFromCtx, ack);
 
   bot.command('deposit', async (ctx) => {
     const account = await needClub(ctx); if (!account) return;
@@ -224,8 +161,16 @@ export function buildBot(): Bot<Ctx> {
   });
 
   async function showDepositMethods(ctx: Ctx, account: Account, platformId: string) {
-    const methods = await methodsFor(account.id);
+    let methods = await methodsFor(account.id);
     if (methods.length === 0) return ctx.reply('No payment methods are set up yet — ask an admin.');
+    // Prefer the deposit methods the player picked at setup, if any (fallback: all).
+    const p = await player(ctx, account);
+    const prefs = await withAccount(account.id, (sql) => sql<{ method_id: string }[]>`select method_id from player_method_prefs where player_id = ${p.id}`);
+    if (prefs.length) {
+      const set = new Set(prefs.map((r) => r.method_id));
+      const filtered = methods.filter((m) => set.has(m.id));
+      if (filtered.length) methods = filtered;
+    }
     const kb = new InlineKeyboard();
     for (const m of methods) kb.text(m.name, `dm:${platformId}:${m.id}`).row();
     await ctx.reply('How would you like to pay?', { reply_markup: kb });
@@ -563,27 +508,8 @@ export function buildBot(): Bot<Ctx> {
     const account = ctx.account; if (!account) return next();
     const s = ctx.session;
 
-    if (s.step === 'ob_name') {
-      const name = ctx.message.text.trim().slice(0, 60);
-      const p = await player(ctx, account);
-      await withAccount(account.id, (sql) => sql`update players set display_name = ${name} where id = ${p.id}`);
-      await ctx.reply(`Nice to meet you, *${name}*! 👋`, { parse_mode: 'Markdown' });
-      return askPlatform(ctx, account, 0);
-    }
-    if (s.step === 'ob_uid') {
-      const uid = ctx.message.text.trim();
-      const p = await player(ctx, account);
-      await withAccount(account.id, (sql) => sql`select player_set_platform(${p.id}, ${s.platformId!}, ${uid})`);
-      const clubs = await withAccount(account.id, (sql) => sql<{ id: string; name: string }[]>`select id, name from clubs order by name`);
-      const idx = s.ob?.idx ?? 0;
-      // One club → assign it silently. Several → let them pick. None → move on.
-      if (clubs.length === 1) {
-        await withAccount(account.id, (sql) => sql`select player_set_club(${p.id}, ${s.platformId!}, ${clubs[0]!.id})`);
-        return askPlatform(ctx, account, idx + 1);
-      }
-      if (clubs.length > 1) { ctx.session = { step: 'ob_club', platformId: s.platformId, ob: { idx } }; return showObClubs(ctx, clubs); }
-      return askPlatform(ctx, account, idx + 1);
-    }
+    // Onboarding text answers (name, ClubGG ID/username, usernames, payout handles).
+    if (s.step.startsWith('ob_') && await onboardingText(ctx, account, ctx.message.text)) return;
 
     if (s.step === 'dep_amount') {
       const amount = parseAmount(ctx.message.text);
@@ -615,14 +541,20 @@ export function buildBot(): Bot<Ctx> {
       if (amount == null) return ctx.reply('That doesn’t look like an amount. Try `50`.', { parse_mode: 'Markdown' });
       const p = await player(ctx, account);
       // Reuse the handle they last used for this method — no re-typing (like Poker).
-      const [saved] = await withAccount(account.id, (sql) => sql<{ payout_handle: string }[]>`
-        select payout_handle from withdraw_requests where player_id = ${p.id} and method_id = ${s.methodId!} and payout_handle is not null order by created_at desc limit 1`);
-      if (saved?.payout_handle) {
+      // Falls back to the destination they saved at setup (player_payout_prefs).
+      const savedHandle = await withAccount(account.id, async (sql) => {
+        const [w] = await sql<{ payout_handle: string }[]>`
+          select payout_handle from withdraw_requests where player_id = ${p.id} and method_id = ${s.methodId!} and payout_handle is not null order by created_at desc limit 1`;
+        if (w?.payout_handle) return w.payout_handle;
+        const [pref] = await sql<{ handle: string }[]>`select handle from player_payout_prefs where player_id = ${p.id} and method_id = ${s.methodId!} limit 1`;
+        return pref?.handle ?? null;
+      });
+      if (savedHandle) {
         try {
           const [w] = await withAccount(account.id, (sql) => sql<{ amount: number }[]>`
-            select amount from withdraw_create(${p.id}, ${s.platformId!}, ${s.methodId!}, ${amount}, ${saved.payout_handle})`);
+            select amount from withdraw_create(${p.id}, ${s.platformId!}, ${s.methodId!}, ${amount}, ${savedHandle})`);
           ctx.session = { step: 'idle' };
-          await ctx.reply(`✅ *Cash-out for ${money(w!.amount)} is in the queue* → paying your usual \`${saved.payout_handle}\`. Need it elsewhere? /cancelwithdraw and start again.`, { parse_mode: 'Markdown' });
+          await ctx.reply(`✅ *Cash-out for ${money(w!.amount)} is in the queue* → paying your usual \`${savedHandle}\`. Need it elsewhere? /cancelwithdraw and start again.`, { parse_mode: 'Markdown' });
         } catch (e) { ctx.session = { step: 'idle' }; await ctx.reply(`❌ ${errText(e)}`); }
         return;
       }
