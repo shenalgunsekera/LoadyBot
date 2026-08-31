@@ -177,8 +177,12 @@ export function buildBot(): Bot<Ctx> {
       const filtered = methods.filter((m) => set.has(m.id));
       if (filtered.length) methods = filtered;
     }
+    // Carry the platform in the session — two UUIDs in callback data (dm:uuid:uuid)
+    // is 76 bytes and Telegram rejects anything over 64, which silently killed the
+    // whole reply. One UUID (dm:uuid) is fine.
+    ctx.session = { step: 'dep_method', platformId };
     const kb = new InlineKeyboard();
-    for (const m of methods) kb.text(m.name, `dm:${platformId}:${m.id}`).row();
+    for (const m of methods) kb.text(m.name, `dm:${m.id}`).row();
     await ctx.reply('How would you like to pay?', { reply_markup: kb });
   }
 
@@ -187,10 +191,12 @@ export function buildBot(): Bot<Ctx> {
     const account = ctx.account; if (!account) return;
     await showDepositMethods(ctx, account, ctx.match![1]!);
   });
-  bot.callbackQuery(/^dm:(.+):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^dm:(.+)$/, async (ctx) => {
     await ack(ctx);
     const account = ctx.account; if (!account) return;
-    const platformId = ctx.match![1]!, methodId = ctx.match![2]!;
+    const platformId = ctx.session.platformId;
+    if (!platformId) { ctx.session = { step: 'idle' }; return void ctx.reply('That expired — start again with /deposit.').catch(() => {}); }
+    const methodId = ctx.match![1]!;
     const [pf] = await withAccount(account.id, (sql) => sql<{ name: string }[]>`select name from platforms where id = ${platformId}`);
     const b = await amountBounds(account.id, methodId);
     ctx.session = { step: 'dep_amount', platformId, methodId };
@@ -525,8 +531,9 @@ export function buildBot(): Bot<Ctx> {
 
   // Assign a club to a linked platform.
   async function showClubs(ctx: Ctx, clubs: { id: string; name: string }[], platformId: string) {
+    ctx.session = { ...ctx.session, platformId }; // carry platform; keep callback data < 64 bytes
     const kb = new InlineKeyboard();
-    for (const c of clubs) kb.text(c.name, `ecc:${platformId}:${c.id}`).row();
+    for (const c of clubs) kb.text(c.name, `ecc:${c.id}`).row();
     await ctx.reply('Pick your club:', { reply_markup: kb });
   }
   bot.command('editclubs', async (ctx) => {
@@ -550,10 +557,12 @@ export function buildBot(): Bot<Ctx> {
     await ctx.answerCallbackQuery();
     await showClubs(ctx, clubs, ctx.match![1]!);
   });
-  bot.callbackQuery(/^ecc:(.+):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^ecc:(.+)$/, async (ctx) => {
     const account = ctx.account; if (!account) return ctx.answerCallbackQuery();
+    const platformId = ctx.session.platformId;
+    if (!platformId) return ctx.answerCallbackQuery({ text: 'That expired — /editclubs again.' });
     const p = await player(ctx, account);
-    await withAccount(account.id, (sql) => sql`select player_set_club(${p.id}, ${ctx.match![1]!}, ${ctx.match![2]!})`);
+    await withAccount(account.id, (sql) => sql`select player_set_club(${p.id}, ${platformId}, ${ctx.match![1]!})`);
     await ctx.answerCallbackQuery({ text: 'Saved ✓' });
     await ctx.reply('✅ Club saved.');
   });
