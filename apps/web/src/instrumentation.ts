@@ -28,8 +28,13 @@ export async function register(): Promise<void> {
     } catch { return false; }
   };
 
+  // WEBHOOK_HOST (set in Vercel to your stable domain, e.g.
+  // web-eta-eosin-u0h9aq2htn.vercel.app) wins — then the webhook sits on the
+  // stable alias forever and never drifts on a new deploy. Falls back to Vercel's
+  // production URL, then this deployment's own URL.
+  const explicit = (process.env.WEBHOOK_HOST ?? '').replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim() || undefined;
   let host: string | undefined;
-  for (const cand of [process.env.VERCEL_PROJECT_PRODUCTION_URL, process.env.VERCEL_URL]) {
+  for (const cand of [explicit, process.env.VERCEL_PROJECT_PRODUCTION_URL, process.env.VERCEL_URL]) {
     if (await serves(cand)) { host = cand; break; }
   }
   if (!host) return;
