@@ -34,9 +34,28 @@ const player = (ctx: Ctx, account: Account): Promise<Player> =>
 
 // ── Entry ────────────────────────────────────────────────────────────────────
 
-/** Kick off setup for a brand-new (or unfinished) player. */
+/** Kick off setup for a brand-new (or unfinished) player. Someone who already
+ *  finished setup gets the menu instead of being marched through it again. */
 export async function startOnboarding(ctx: Ctx, account: Account): Promise<void> {
-  await player(ctx, account); // ensure a player row exists
+  const p = await player(ctx, account); // ensure a player row exists
+  const [row] = await withAccount(account.id, (sql) => sql<{ onboarded_at: string | null }[]>`
+    select onboarded_at from players where id = ${p.id}`);
+  if (row?.onboarded_at) {
+    ctx.session = { step: 'idle' };
+    await ctx.reply(
+      `✅ *You're already set up.* Here's what you can do:\n\n` +
+        '💵 /deposit — add money\n' +
+        '💸 /withdraw — cash-out\n' +
+        '📋 /pending — your pending cash-outs\n' +
+        '📥 /deposithistory · 📄 /withdrawalhistory\n' +
+        '➕ /editplatform — add or change ClubGG / Sportsbook\n' +
+        '💳 /editdeposit · 🏦 /editwithdraw — change how you pay / get paid\n' +
+        '💬 /support — message our team\n' +
+        '📖 /guide — what each command does',
+      { parse_mode: 'Markdown' },
+    );
+    return;
+  }
   ctx.session = { step: 'ob_name', ob: {} };
   await ctx.reply(
     `👋 *Welcome to ${account.name}!* Let's get you set up.\n\n` +
