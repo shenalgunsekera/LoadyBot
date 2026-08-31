@@ -1,59 +1,40 @@
 /**
- * Self-healing Telegram webhook.
- * ══════════════════════════════
- * Vercel deployment URLs are immutable — a webhook pinned to one keeps hitting
- * that exact (soon-old) build forever, so bot fixes never go live until someone
- * re-points it by hand. Next runs register() when a server instance boots, so we
- * use it to make production keep its own webhook pointed at itself: on boot, if
- * the Telegram webhook isn't already this deployment's URL, set it. Any deploy
- * then heals the moment its server first runs (a dashboard page load is enough).
- *
- * Prefers the stable production domain (VERCEL_PROJECT_PRODUCTION_URL) so it stops
- * drifting once set; falls back to this deployment's own URL (VERCEL_URL) if the
- * stable one isn't serving. Only runs on Vercel's Node runtime, never locally.
+ * Self-healing Telegram webhook — opt-in and non-blocking.
+ * ════════════════════════════════════════════════════════
+ * Set WEBHOOK_HOST in Vercel (Production) to your stable public domain, e.g.
+ *   WEBHOOK_HOST=web-eta-eosin-u0h9aq2htn.vercel.app
+ * and every deploy keeps the Telegram webhook pinned there. If WEBHOOK_HOST is
+ * not set, this does NOTHING — it will never touch (or break) an existing
+ * webhook. It only ever calls api.telegram.org, never this deployment's own
+ * routes, and runs fire-and-forget so it can never block server startup.
  */
-export async function register(): Promise<void> {
+export function register(): void {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   if (process.env.VERCEL !== '1') return;
   const token = process.env.TELEGRAM_TOKEN;
-  if (!token) return;
-
-  // A host "serves" if /api/telegram isn't a 404 — a GET returns 405 (POST-only),
-  // which proves the route (and thus the app) is deployed there.
-  const serves = async (host?: string): Promise<boolean> => {
-    if (!host) return false;
-    try {
-      const r = await fetch(`https://${host}/api/telegram`, { method: 'GET' });
-      return r.status !== 404;
-    } catch { return false; }
-  };
-
-  // WEBHOOK_HOST (set in Vercel to your stable domain, e.g.
-  // web-eta-eosin-u0h9aq2htn.vercel.app) wins — then the webhook sits on the
-  // stable alias forever and never drifts on a new deploy. Falls back to Vercel's
-  // production URL, then this deployment's own URL.
-  const explicit = (process.env.WEBHOOK_HOST ?? '').replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim() || undefined;
-  let host: string | undefined;
-  for (const cand of [explicit, process.env.VERCEL_PROJECT_PRODUCTION_URL, process.env.VERCEL_URL]) {
-    if (await serves(cand)) { host = cand; break; }
-  }
-  if (!host) return;
+  // Only act on an explicit host, so we can never re-point the webhook at a
+  // protected per-deploy URL or a domain that isn't serving.
+  const host = (process.env.WEBHOOK_HOST ?? '').replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+  if (!token || !host) return;
   const url = `https://${host}/api/telegram`;
 
-  try {
-    const info = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`).then((r) => r.json());
-    if (info?.result?.url === url) return; // already correct — don't spam setWebhook
-    const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        url,
-        // my_chat_member is needed for auto-connect; the rest are the flows.
-        allowed_updates: ['message', 'edited_message', 'callback_query', 'my_chat_member'],
-      }),
-    }).then((r) => r.json());
-    console.log('[webhook] re-pointed to', url, '→', res?.ok ? 'ok' : res?.description);
-  } catch (e) {
-    console.error('[webhook] self-heal failed', e);
-  }
+  // Fire-and-forget: register() returns immediately; the webhook check runs in the
+  // background and only hits api.telegram.org.
+  void (async () => {
+    try {
+      const info = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`).then((r) => r.json());
+      if (info?.result?.url === url) return; // already correct
+      const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          allowed_updates: ['message', 'edited_message', 'callback_query', 'my_chat_member'],
+        }),
+      }).then((r) => r.json());
+      console.log('[webhook] re-pointed to', url, '→', res?.ok ? 'ok' : res?.description);
+    } catch (e) {
+      console.error('[webhook] self-heal failed', e);
+    }
+  })();
 }
